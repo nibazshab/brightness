@@ -1,2 +1,3 @@
-# light-c
-Windows 控制显示器的亮度
+# brightness
+
+用于在 Windows 中，控制外接显示器的亮度
