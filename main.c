@@ -35,8 +35,13 @@ static void  mon_exit(void);
 static void  mon_set_pct(DWORD);
 static void  ui_show_slider(void);
 static void  ui_update_label(DWORD);
+static void  refresh_monitors(void);
 
-int WINAPI WinMain(HINSTANCE inst, HINSTANCE a, LPSTR b, int c)
+int WINAPI WinMain(
+    _In_ HINSTANCE inst,
+    _In_opt_ HINSTANCE a,
+    _In_ LPSTR b,
+    _In_ int c)
 {
     WNDCLASSEX wc;
     MSG msg;
@@ -94,7 +99,9 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE a, LPSTR b, int c)
 
 static LRESULT CALLBACK main_proc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp)
 {
-    if (msg == WM_USER + 1) {
+    switch (msg) {
+
+    case WM_USER + 1:
         if (lp == WM_LBUTTONUP)
             ui_show_slider();
         else if (lp == WM_RBUTTONUP) {
@@ -105,11 +112,22 @@ static LRESULT CALLBACK main_proc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp)
                 pt.x, pt.y, 0, wnd, NULL);
         }
         return 0;
-    }
 
-    if (msg == WM_COMMAND && LOWORD(wp) == 1) {
-        PostQuitMessage(0);
+    case WM_DISPLAYCHANGE:
+        SetTimer(wnd, 1, 800, NULL);
         return 0;
+
+    case WM_TIMER:
+        refresh_monitors();
+        KillTimer(wnd, 1);
+        return 0;
+
+    case WM_COMMAND:
+        if (LOWORD(wp) == 1) {
+            PostQuitMessage(0);
+            return 0;
+        }
+        break;
     }
 
     return DefWindowProc(wnd, msg, wp, lp);
@@ -118,6 +136,7 @@ static LRESULT CALLBACK main_proc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp)
 static LRESULT CALLBACK slider_proc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp)
 {
     switch (msg) {
+
     case WM_CREATE:
     {
         g_combo = CreateWindow(
@@ -127,8 +146,9 @@ static LRESULT CALLBACK slider_proc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp)
             wnd, (HMENU)1, NULL, NULL);
 
         for (DWORD i = 0; i < g_mon_cnt; i++) {
-            WCHAR buf[64];
-            wsprintf(buf, L"Monitor %lu", i + 1);
+            WCHAR buf[128];
+            StringCchCopy(buf, ARRAYSIZE(buf),
+                g_mons[i].szPhysicalMonitorDescription);
             SendMessage(g_combo, CB_ADDSTRING, 0, (LPARAM)buf);
         }
 
@@ -269,9 +289,7 @@ static BOOL CALLBACK enum_proc(HMONITOR hm, HDC dc, LPRECT rc, LPARAM lp)
 static BOOL mon_init(void)
 {
     g_mon_cnt = 0;
-
     EnumDisplayMonitors(NULL, NULL, enum_proc, 0);
-
     g_cur_mon = 0;
     return g_mon_cnt > 0;
 }
@@ -280,6 +298,29 @@ static void mon_exit(void)
 {
     for (DWORD i = 0; i < g_mon_cnt; i++) {
         DestroyPhysicalMonitor(g_mons[i].hPhysicalMonitor);
+    }
+    g_mon_cnt = 0;
+}
+
+static void refresh_monitors(void)
+{
+    mon_exit();
+    mon_init();
+
+    if (g_combo && IsWindow(g_combo)) {
+
+        SendMessage(g_combo, CB_RESETCONTENT, 0, 0);
+
+        for (DWORD i = 0; i < g_mon_cnt; i++) {
+            WCHAR buf[128];
+            StringCchCopy(buf, ARRAYSIZE(buf),
+                g_mons[i].szPhysicalMonitorDescription);
+
+            SendMessage(g_combo, CB_ADDSTRING, 0, (LPARAM)buf);
+        }
+
+        SendMessage(g_combo, CB_SETCURSEL, 0, 0);
+        g_cur_mon = 0;
     }
 }
 
