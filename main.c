@@ -3,6 +3,8 @@
 #include <lowlevelmonitorconfigurationapi.h>
 #include <strsafe.h>
 
+#include "resource.h"
+
 #pragma comment(lib, "dxva2.lib")
 #pragma comment(lib, "comctl32.lib")
 #pragma comment(linker, "/subsystem:windows /entry:WinMainCRTStartup")
@@ -176,6 +178,12 @@ static LRESULT CALLBACK slider_proc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp) {
             }
             break;
 
+        case WM_ACTIVATE:
+            if (LOWORD(wp) == WA_INACTIVE) {
+                PostMessage(wnd, WM_CLOSE, 0, 0);
+            }
+            break;
+
         case WM_CLOSE:
             DestroyWindow(wnd);
             g_win = NULL;
@@ -189,20 +197,32 @@ static LRESULT CALLBACK slider_proc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp) {
 }
 
 static void show_window(void) {
-    if (IsWindow(g_win)) return;
+    if (IsWindow(g_win)) {
+        ShowWindow(g_win, SW_SHOW);
+        SetForegroundWindow(g_win);
+        return;
+    }
 
-    const int w = 320;
-    const int h = 150;
-    const int sw = GetSystemMetrics(SM_CXSCREEN);
-    const int sh = GetSystemMetrics(SM_CYSCREEN);
+    const int w = 300;
+    const int h = 120;
+
+    POINT pt;
+    GetCursorPos(&pt);
 
     g_win = CreateWindowEx(
-        0, L"br_slider", L"brightness",
-        WS_CAPTION | WS_SYSMENU | WS_VISIBLE,
-        (sw - w) / 2,
-        (sh - h) / 2,
+        WS_EX_TOOLWINDOW | WS_EX_TOPMOST,
+        L"br_slider",
+        NULL,
+        WS_POPUP | WS_BORDER,
+        pt.x - (w / 2),
+        pt.y - h - 20,
         w, h,
-        NULL, NULL, NULL, NULL);
+        NULL, NULL, GetModuleHandle(NULL), NULL);
+
+    if (g_win) {
+        ShowWindow(g_win, SW_SHOW);
+        SetForegroundWindow(g_win);
+    }
 }
 
 static LRESULT CALLBACK main_proc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp) {
@@ -264,7 +284,14 @@ int WinMain(HINSTANCE inst, HINSTANCE a, LPSTR b, int c) {
     g_nid.uID = 1;
     g_nid.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP;
     g_nid.uCallbackMessage = WM_USER + 1;
-    g_nid.hIcon = LoadIcon(NULL, IDI_APPLICATION);
+    g_nid.hIcon = (HICON) LoadImage(
+        GetModuleHandle(NULL),
+        MAKEINTRESOURCE(IDI_ICON),
+        IMAGE_ICON,
+        GetSystemMetrics(SM_CXSMICON),
+        GetSystemMetrics(SM_CYSMICON),
+        LR_DEFAULTCOLOR
+    );
     (void) StringCchCopy(g_nid.szTip, ARRAYSIZE(g_nid.szTip), L"brightness");
 
     Shell_NotifyIcon(NIM_ADD, &g_nid);

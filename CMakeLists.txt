@@ -8,6 +8,8 @@ set(CMAKE_C_STANDARD_REQUIRED ON)
 
 add_executable(${PROJECT_NAME}
     main.c
+    resource.rc
+    resource.h
 )
 
 target_compile_definitions(${PROJECT_NAME} PRIVATE
