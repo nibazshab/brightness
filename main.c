@@ -197,11 +197,7 @@ static LRESULT CALLBACK slider_proc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp) {
 }
 
 static void show_window(void) {
-    if (IsWindow(g_win)) {
-        ShowWindow(g_win, SW_SHOW);
-        SetForegroundWindow(g_win);
-        return;
-    }
+    if (IsWindow(g_win)) return;
 
     const int w = 300;
     const int h = 120;
@@ -214,7 +210,7 @@ static void show_window(void) {
         L"br_slider",
         NULL,
         WS_POPUP | WS_BORDER,
-        pt.x - (w / 2),
+        pt.x - w / 2,
         pt.y - h - 20,
         w, h,
         NULL, NULL, GetModuleHandle(NULL), NULL);
