@@ -1,0 +1,25 @@
+BasedOnStyle: Google
+
+IndentWidth: 4
+MaxEmptyLinesToKeep: 1
+AlignConsecutiveAssignments: false
+AlignConsecutiveDeclarations: false
+
+ColumnLimit: 120
+BreakBeforeBraces: Custom
+BraceWrapping:
+  AfterClass: true
+  AfterControlStatement: false
+  AfterFunction: true
+  AfterNamespace: false
+  AfterStruct: true
+  BeforeCatch: true
+  BeforeElse: true
+  IndentBraces: false
+
+PointerAlignment: Right
+
+AllowShortFunctionsOnASingleLine: Inline
+AllowShortIfStatementsOnASingleLine: false
+SortIncludes: true
+SpacesInContainerLiterals: true
