@@ -177,9 +177,8 @@ static LRESULT CALLBACK slider_proc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp)
             break;
 
         case WM_ACTIVATE:
-            if (LOWORD(wp) == WA_INACTIVE) {
+            if (LOWORD(wp) == WA_INACTIVE)
                 PostMessage(wnd, WM_CLOSE, 0, 0);
-            }
 
             break;
 
@@ -218,9 +217,8 @@ static void show_window(void)
     if (x + w > rc.right)
         x = rc.right - w;
 
-    if (y < rc.top) {
+    if (y < rc.top)
         y = pt.y + 20;
-    }
 
     if (y + h > rc.bottom)
         y = rc.bottom - h;
@@ -238,8 +236,9 @@ static LRESULT CALLBACK main_proc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp)
 {
     switch (msg) {
         case WM_USER + 1:
-            if (lp == WM_LBUTTONUP)
+            if (lp == WM_LBUTTONUP) {
                 show_window();
+            }
             else if (lp == WM_RBUTTONUP) {
                 POINT pt;
                 GetCursorPos(&pt);
@@ -257,7 +256,9 @@ static LRESULT CALLBACK main_proc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp)
                 PostQuitMessage(0);
                 return 0;
             }
+
             break;
+
         default:;
     }
 
