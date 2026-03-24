@@ -1,7 +1,7 @@
+#include <windows.h>
 #include <commctrl.h>
 #include <lowlevelmonitorconfigurationapi.h>
 #include <strsafe.h>
-#include <windows.h>
 
 #include "resource.h"
 

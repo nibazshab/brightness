@@ -21,5 +21,5 @@ PointerAlignment: Right
 
 AllowShortFunctionsOnASingleLine: Inline
 AllowShortIfStatementsOnASingleLine: false
-SortIncludes: true
+SortIncludes: false
 SpacesInContainerLiterals: true
