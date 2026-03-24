@@ -1,7 +1,7 @@
-﻿#include <windows.h>
 #include <commctrl.h>
 #include <lowlevelmonitorconfigurationapi.h>
 #include <strsafe.h>
+#include <windows.h>
 
 #include "resource.h"
 
@@ -21,14 +21,14 @@ static DWORD g_mon_cnt, g_cur_mon;
 static DWORD g_cur_pct = 50;
 static DWORD g_vcp_max = 100;
 
-static BOOL mon_get_pct(const DWORD i, DWORD *pct) {
+static BOOL mon_get_pct(const DWORD i, DWORD *pct)
+{
     DWORD cur, max;
 
-    if (i >= g_mon_cnt) return FALSE;
+    if (i >= g_mon_cnt)
+        return FALSE;
 
-    if (!GetVCPFeatureAndVCPFeatureReply(
-        g_mons[i].hPhysicalMonitor,
-        0x10, NULL, &cur, &max))
+    if (!GetVCPFeatureAndVCPFeatureReply(g_mons[i].hPhysicalMonitor, 0x10, NULL, &cur, &max))
         return FALSE;
 
     max = max ? max : 100;
@@ -38,22 +38,23 @@ static BOOL mon_get_pct(const DWORD i, DWORD *pct) {
     return TRUE;
 }
 
-static void mon_set_pct(DWORD pct) {
-    if (g_cur_mon >= g_mon_cnt) return;
+static void mon_set_pct(DWORD pct)
+{
+    if (g_cur_mon >= g_mon_cnt)
+        return;
 
-    if (pct > 100) pct = 100;
+    if (pct > 100)
+        pct = 100;
 
     const DWORD vcp = pct * g_vcp_max / 100;
 
-    SetVCPFeature(
-        g_mons[g_cur_mon].hPhysicalMonitor,
-        0x10,
-        vcp);
+    SetVCPFeature(g_mons[g_cur_mon].hPhysicalMonitor, 0x10, vcp);
 
     g_cur_pct = pct;
 }
 
-static BOOL CALLBACK enum_proc(HMONITOR hm, HDC dc, LPRECT rc, LPARAM lp) {
+static BOOL CALLBACK enum_proc(HMONITOR hm, HDC dc, LPRECT rc, LPARAM lp)
+{
     DWORD cnt;
 
     if (!GetNumberOfPhysicalMonitorsFromHMONITOR(hm, &cnt) || !cnt)
@@ -65,11 +66,10 @@ static BOOL CALLBACK enum_proc(HMONITOR hm, HDC dc, LPRECT rc, LPARAM lp) {
         for (DWORD i = 0; i < cnt && g_mon_cnt < MAX_MON; i++) {
             DWORD cur, max;
 
-            if (GetVCPFeatureAndVCPFeatureReply(
-                mons[i].hPhysicalMonitor,
-                0x10, NULL, &cur, &max)) {
+            if (GetVCPFeatureAndVCPFeatureReply(mons[i].hPhysicalMonitor, 0x10, NULL, &cur, &max)) {
                 g_mons[g_mon_cnt++] = mons[i];
-            } else {
+            }
+            else {
                 DestroyPhysicalMonitor(mons[i].hPhysicalMonitor);
             }
         }
@@ -78,13 +78,15 @@ static BOOL CALLBACK enum_proc(HMONITOR hm, HDC dc, LPRECT rc, LPARAM lp) {
     return TRUE;
 }
 
-static void mon_init(void) {
+static void mon_init(void)
+{
     g_mon_cnt = 0;
     EnumDisplayMonitors(NULL, NULL, enum_proc, 0);
     g_cur_mon = 0;
 }
 
-static void mon_exit(void) {
+static void mon_exit(void)
+{
     for (DWORD i = 0; i < g_mon_cnt; i++) {
         if (g_mons[i].hPhysicalMonitor)
             DestroyPhysicalMonitor(g_mons[i].hPhysicalMonitor);
@@ -92,7 +94,8 @@ static void mon_exit(void) {
     g_mon_cnt = 0;
 }
 
-static void refresh_monitors(void) {
+static void refresh_monitors(void)
+{
     mon_exit();
     mon_init();
 
@@ -100,8 +103,7 @@ static void refresh_monitors(void) {
         SendMessage(g_combo, CB_RESETCONTENT, 0, 0);
 
         for (DWORD i = 0; i < g_mon_cnt; i++) {
-            SendMessage(g_combo, CB_ADDSTRING, 0,
-                        (LPARAM) (LPCWSTR) g_mons[i].szPhysicalMonitorDescription);
+            SendMessage(g_combo, CB_ADDSTRING, 0, (LPARAM)(LPCWSTR)g_mons[i].szPhysicalMonitorDescription);
         }
 
         SendMessage(g_combo, CB_SETCURSEL, 0, 0);
@@ -109,30 +111,24 @@ static void refresh_monitors(void) {
     }
 }
 
-static LRESULT CALLBACK slider_proc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp) {
+static LRESULT CALLBACK slider_proc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp)
+{
     switch (msg) {
         case WM_CREATE: {
-            g_combo = CreateWindow(L"COMBOBOX", NULL,
-                                   WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST,
-                                   10, 10, 280, 200,
-                                   wnd, (HMENU)1, NULL, NULL);
+            g_combo = CreateWindow(L"COMBOBOX", NULL, WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST, 10, 10, 280, 200, wnd,
+                                   (HMENU)1, NULL, NULL);
 
             for (DWORD i = 0; i < g_mon_cnt; i++) {
-                SendMessage(g_combo, CB_ADDSTRING, 0,
-                            (LPARAM) (LPCWSTR) g_mons[i].szPhysicalMonitorDescription);
+                SendMessage(g_combo, CB_ADDSTRING, 0, (LPARAM)(LPCWSTR)g_mons[i].szPhysicalMonitorDescription);
             }
 
             SendMessage(g_combo, CB_SETCURSEL, 0, 0);
 
-            g_label = CreateWindow(L"STATIC", L"",
-                                   WS_CHILD | WS_VISIBLE | SS_CENTER,
-                                   10, 50, 280, 20,
-                                   wnd, NULL, NULL, NULL);
+            g_label =
+                CreateWindow(L"STATIC", L"", WS_CHILD | WS_VISIBLE | SS_CENTER, 10, 50, 280, 20, wnd, NULL, NULL, NULL);
 
-            g_slider = CreateWindow(TRACKBAR_CLASS, NULL,
-                                    WS_CHILD | WS_VISIBLE | TBS_HORZ,
-                                    10, 80, 280, 30,
-                                    wnd, NULL, NULL, NULL);
+            g_slider = CreateWindow(TRACKBAR_CLASS, NULL, WS_CHILD | WS_VISIBLE | TBS_HORZ, 10, 80, 280, 30, wnd, NULL,
+                                    NULL, NULL);
 
             SendMessage(g_slider, TBM_SETRANGE, TRUE, MAKELONG(0, 100));
 
@@ -140,11 +136,10 @@ static LRESULT CALLBACK slider_proc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp) {
                 SendMessage(g_slider, TBM_SETPOS, TRUE, g_cur_pct);
 
                 WCHAR buf[32];
-                (void) StringCchPrintf(buf, ARRAYSIZE(buf), L"%lu%%", g_cur_pct);
+                (void)StringCchPrintf(buf, ARRAYSIZE(buf), L"%lu%%", g_cur_pct);
                 SetWindowText(g_label, buf);
             }
-        }
-        break;
+        } break;
 
         case WM_COMMAND:
             if (LOWORD(wp) == 1 && HIWORD(wp) == CBN_SELCHANGE) {
@@ -154,23 +149,22 @@ static LRESULT CALLBACK slider_proc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp) {
                     SendMessage(g_slider, TBM_SETPOS, TRUE, g_cur_pct);
 
                     WCHAR buf[32];
-                    (void) StringCchPrintf(buf, ARRAYSIZE(buf), L"%lu%%", g_cur_pct);
+                    (void)StringCchPrintf(buf, ARRAYSIZE(buf), L"%lu%%", g_cur_pct);
                     SetWindowText(g_label, buf);
                 }
             }
             break;
 
         case WM_HSCROLL:
-            if ((HWND) lp == g_slider) {
+            if ((HWND)lp == g_slider) {
                 const DWORD code = LOWORD(wp);
                 const DWORD pos = SendMessage(g_slider, TBM_GETPOS, 0, 0);
 
                 WCHAR buf[32];
-                (void) StringCchPrintf(buf, ARRAYSIZE(buf), L"%lu%%", pos);
+                (void)StringCchPrintf(buf, ARRAYSIZE(buf), L"%lu%%", pos);
                 SetWindowText(g_label, buf);
 
-                if (code == TB_ENDTRACK || code == TB_THUMBPOSITION ||
-                    code == TB_PAGEUP || code == TB_PAGEDOWN ||
+                if (code == TB_ENDTRACK || code == TB_THUMBPOSITION || code == TB_PAGEUP || code == TB_PAGEDOWN ||
                     code == TB_LINEUP || code == TB_LINEDOWN) {
                     if (pos != g_cur_pct)
                         mon_set_pct(pos);
@@ -196,8 +190,10 @@ static LRESULT CALLBACK slider_proc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp) {
     return 0;
 }
 
-static void show_window(void) {
-    if (IsWindow(g_win)) return;
+static void show_window(void)
+{
+    if (IsWindow(g_win))
+        return;
 
     const int w = 300;
     const int h = 120;
@@ -205,15 +201,26 @@ static void show_window(void) {
     POINT pt;
     GetCursorPos(&pt);
 
-    g_win = CreateWindowEx(
-        WS_EX_TOOLWINDOW | WS_EX_TOPMOST,
-        L"br_slider",
-        NULL,
-        WS_POPUP | WS_BORDER,
-        pt.x - w / 2,
-        pt.y - h - 20,
-        w, h,
-        NULL, NULL, GetModuleHandle(NULL), NULL);
+    RECT rc = {0};
+    SystemParametersInfo(SPI_GETWORKAREA, 0, &rc, 0);
+
+    int x = pt.x - w / 2;
+    int y = pt.y - h - 20;
+
+    if (x < rc.left)
+        x = rc.left;
+    if (x + w > rc.right)
+        x = rc.right - w;
+
+    if (y < rc.top) {
+        y = pt.y + 20;
+    }
+
+    if (y + h > rc.bottom)
+        y = rc.bottom - h;
+
+    g_win = CreateWindowEx(WS_EX_TOOLWINDOW | WS_EX_TOPMOST, L"br_slider", NULL, WS_POPUP | WS_BORDER, x, y, w, h, NULL,
+                           NULL, GetModuleHandle(NULL), NULL);
 
     if (g_win) {
         ShowWindow(g_win, SW_SHOW);
@@ -221,7 +228,8 @@ static void show_window(void) {
     }
 }
 
-static LRESULT CALLBACK main_proc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp) {
+static LRESULT CALLBACK main_proc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp)
+{
     switch (msg) {
         case WM_USER + 1:
             if (lp == WM_LBUTTONUP)
@@ -230,8 +238,7 @@ static LRESULT CALLBACK main_proc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp) {
                 POINT pt;
                 GetCursorPos(&pt);
                 SetForegroundWindow(wnd);
-                TrackPopupMenu(g_menu, TPM_RIGHTBUTTON,
-                               pt.x, pt.y, 0, wnd, NULL);
+                TrackPopupMenu(g_menu, TPM_RIGHTBUTTON, pt.x, pt.y, 0, wnd, NULL);
             }
             return 0;
 
@@ -245,13 +252,14 @@ static LRESULT CALLBACK main_proc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp) {
                 return 0;
             }
             break;
-        default: ;
+        default:;
     }
 
     return DefWindowProc(wnd, msg, wp, lp);
 }
 
-int WinMain(HINSTANCE inst, HINSTANCE a, LPSTR b, int c) {
+int WinMain(HINSTANCE inst, HINSTANCE a, LPSTR b, int c)
+{
     const INITCOMMONCONTROLSEX icc = {sizeof(icc), ICC_BAR_CLASSES};
     InitCommonControlsEx(&icc);
 
@@ -263,16 +271,13 @@ int WinMain(HINSTANCE inst, HINSTANCE a, LPSTR b, int c) {
     RegisterClassEx(&wc);
 
     wc.lpfnWndProc = slider_proc;
-    wc.hbrBackground = (HBRUSH) (COLOR_BTNFACE + 1);
+    wc.hbrBackground = (HBRUSH)(COLOR_BTNFACE + 1);
     wc.lpszClassName = L"br_slider";
     RegisterClassEx(&wc);
 
     mon_init();
 
-    g_main = CreateWindowEx(
-        0, L"br_main", L"",
-        WS_OVERLAPPED, 0, 0, 0, 0,
-        NULL, NULL, inst, NULL);
+    g_main = CreateWindowEx(0, L"br_main", L"", WS_OVERLAPPED, 0, 0, 0, 0, NULL, NULL, inst, NULL);
 
     ZeroMemory(&g_nid, sizeof(g_nid));
     g_nid.cbSize = sizeof(g_nid);
@@ -280,15 +285,9 @@ int WinMain(HINSTANCE inst, HINSTANCE a, LPSTR b, int c) {
     g_nid.uID = 1;
     g_nid.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP;
     g_nid.uCallbackMessage = WM_USER + 1;
-    g_nid.hIcon = (HICON) LoadImage(
-        GetModuleHandle(NULL),
-        MAKEINTRESOURCE(IDI_ICON),
-        IMAGE_ICON,
-        GetSystemMetrics(SM_CXSMICON),
-        GetSystemMetrics(SM_CYSMICON),
-        LR_DEFAULTCOLOR
-    );
-    (void) StringCchCopy(g_nid.szTip, ARRAYSIZE(g_nid.szTip), L"brightness");
+    g_nid.hIcon = (HICON)LoadImage(GetModuleHandle(NULL), MAKEINTRESOURCE(IDI_ICON), IMAGE_ICON,
+                                   GetSystemMetrics(SM_CXSMICON), GetSystemMetrics(SM_CYSMICON), LR_DEFAULTCOLOR);
+    (void)StringCchCopy(g_nid.szTip, ARRAYSIZE(g_nid.szTip), L"brightness");
 
     Shell_NotifyIcon(NIM_ADD, &g_nid);
 
