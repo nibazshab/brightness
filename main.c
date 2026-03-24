@@ -91,6 +91,7 @@ static void mon_exit(void)
         if (g_mons[i].hPhysicalMonitor)
             DestroyPhysicalMonitor(g_mons[i].hPhysicalMonitor);
     }
+
     g_mon_cnt = 0;
 }
 
@@ -114,7 +115,7 @@ static void refresh_monitors(void)
 static LRESULT CALLBACK slider_proc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp)
 {
     switch (msg) {
-        case WM_CREATE: {
+        case WM_CREATE:
             g_combo = CreateWindow(L"COMBOBOX", NULL, WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST, 10, 10, 280, 200, wnd,
                                    (HMENU)1, NULL, NULL);
 
@@ -139,7 +140,8 @@ static LRESULT CALLBACK slider_proc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp)
                 (void)StringCchPrintf(buf, ARRAYSIZE(buf), L"%lu%%", g_cur_pct);
                 SetWindowText(g_label, buf);
             }
-        } break;
+
+            break;
 
         case WM_COMMAND:
             if (LOWORD(wp) == 1 && HIWORD(wp) == CBN_SELCHANGE) {
@@ -153,6 +155,7 @@ static LRESULT CALLBACK slider_proc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp)
                     SetWindowText(g_label, buf);
                 }
             }
+
             break;
 
         case WM_HSCROLL:
@@ -170,12 +173,14 @@ static LRESULT CALLBACK slider_proc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp)
                         mon_set_pct(pos);
                 }
             }
+
             break;
 
         case WM_ACTIVATE:
             if (LOWORD(wp) == WA_INACTIVE) {
                 PostMessage(wnd, WM_CLOSE, 0, 0);
             }
+
             break;
 
         case WM_CLOSE:
@@ -209,6 +214,7 @@ static void show_window(void)
 
     if (x < rc.left)
         x = rc.left;
+
     if (x + w > rc.right)
         x = rc.right - w;
 
@@ -280,6 +286,7 @@ int WinMain(HINSTANCE inst, HINSTANCE a, LPSTR b, int c)
     g_main = CreateWindowEx(0, L"br_main", L"", WS_OVERLAPPED, 0, 0, 0, 0, NULL, NULL, inst, NULL);
 
     ZeroMemory(&g_nid, sizeof(g_nid));
+
     g_nid.cbSize = sizeof(g_nid);
     g_nid.hWnd = g_main;
     g_nid.uID = 1;
@@ -287,6 +294,7 @@ int WinMain(HINSTANCE inst, HINSTANCE a, LPSTR b, int c)
     g_nid.uCallbackMessage = WM_USER + 1;
     g_nid.hIcon = (HICON)LoadImage(GetModuleHandle(NULL), MAKEINTRESOURCE(IDI_ICON), IMAGE_ICON,
                                    GetSystemMetrics(SM_CXSMICON), GetSystemMetrics(SM_CYSMICON), LR_DEFAULTCOLOR);
+
     (void)StringCchCopy(g_nid.szTip, ARRAYSIZE(g_nid.szTip), L"brightness");
 
     Shell_NotifyIcon(NIM_ADD, &g_nid);
