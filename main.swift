@@ -15,14 +15,20 @@ struct MonDev: Identifiable {
     let s: IOAVService
 }
 
+@MainActor
 class MonManager: ObservableObject {
     @Published var mons: [MonDev] = []
     @Published var cur_idx: Int = 0
     @Published var pct: Double = 50 {
         didSet {
             let val = Int(pct)
-            DispatchQueue.global(qos: .userInitiated).async {
-                self.set_vcp(val)
+
+            if !mons.isEmpty, cur_idx < mons.count {
+                let service = mons[cur_idx].s
+
+                Task.detached(priority: .userInitiated) {
+                    self.set_vcp(val, on: service)
+                }
             }
         }
     }
@@ -55,16 +61,11 @@ class MonManager: ObservableObject {
             IOObjectRelease(iter)
         }
 
-        DispatchQueue.main.async {
-            self.mons = found
-            if self.cur_idx >= found.count { self.cur_idx = 0 }
-        }
+        mons = found
+        if cur_idx >= found.count { cur_idx = 0 }
     }
 
-    private func set_vcp(_ val: Int) {
-        guard !mons.isEmpty, cur_idx < mons.count else { return }
-
-        let s = mons[cur_idx].s
+    private nonisolated func set_vcp(_ val: Int, on s: IOAVService) {
         var pkt: [UInt8] = [0x84, 0x03, 0x10, 0x00, UInt8(val & 0xFF), 0]
         var chk: UInt8 = 0x6E ^ 0x51
         for i in 0 ..< 5 {
@@ -87,7 +88,9 @@ struct ContentView: View {
                         Text(mon.name).tag(mon.id)
                     }
                 }
-                .pickerStyle(.menu).labelsHidden().fixedSize()
+                .pickerStyle(.menu)
+                .labelsHidden()
+                .fixedSize()
 
                 HStack {
                     Image(systemName: "sun.max.fill").foregroundColor(.orange)
@@ -102,10 +105,13 @@ struct ContentView: View {
             Divider()
 
             Button("Exit") { NSApp.terminate(nil) }
-                .buttonStyle(.plain).font(.caption).foregroundColor(.secondary)
+                .buttonStyle(.plain)
+                .font(.caption)
+                .foregroundColor(.secondary)
                 .frame(maxWidth: .infinity, alignment: .trailing)
         }
-        .padding(12).frame(width: 200)
+        .padding(12)
+        .frame(width: 200)
         .onAppear { m.refresh() }
     }
 }
@@ -113,6 +119,7 @@ struct ContentView: View {
 @main
 struct Brightness: App {
     @StateObject private var m = MonManager()
+
     init() {
         NSApp?.setActivationPolicy(.accessory)
     }
