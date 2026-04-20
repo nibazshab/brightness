@@ -44,7 +44,10 @@ jobs:
           cp .build/Build/Products/Release/brightness brightness.app/Contents/MacOS/brightness
           cp Info.plist brightness.app/Contents/Info.plist
 
-      - run: ditto -c -k --sequesterRsrc "brightness.app" brightness.app.zip
+      - run: |
+          mkdir bundle
+          mv brightness.app bundle/brightness.app
+          ditto -c -k --sequesterRsrc bundle brightness.app.zip
 
       - uses: softprops/action-gh-release@v2
         if: ${{ github.event_name != 'workflow_dispatch' }}
