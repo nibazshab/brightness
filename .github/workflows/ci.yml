@@ -41,7 +41,9 @@ jobs:
 
       - run: |
           mkdir -p brightness.app/Contents/MacOS
+          mkdir -p brightness.app/Contents/Resources
           cp .build/Build/Products/Release/brightness brightness.app/Contents/MacOS/brightness
+          cp logo.icns brightness.app/Contents/Resources/logo.icns
           cp Info.plist brightness.app/Contents/Info.plist
 
       - run: |
