@@ -6,8 +6,8 @@
 
 它是纯正的 C 语言血统，流淌着原生 UI 的血液。运行内存？哦，上帝，仅仅只有 1.5 MB。这简直比你邻居汤姆口袋里的零钱还要少！
 
-> 新增 macOS 版本，Swift 语言编写
-> 如果出现 “已损坏” 的提示，使用 xattr -cr brightness.app 签名一下
+> 新增 macOS 版本，Swift 语言编写  
+> 如果出现 “已损坏” 的提示，输入 xattr -cr brightness.app 命令绕过签名验证
 
 <br>
 
