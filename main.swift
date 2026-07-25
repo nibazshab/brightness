@@ -1,91 +1,136 @@
 import IOKit
 import SwiftUI
 
-typealias IOAVService = AnyObject
+typealias IOAVService = AnyObject & Sendable
 
 @_silgen_name("IOAVServiceCreateWithService")
-func IOAVServiceCreateWithService(_ allocator: CFAllocator?, _ service: io_service_t) -> Unmanaged<IOAVService>?
+func IOAVServiceCreateWithService(
+    _ allocator: CFAllocator?,
+    _ service: io_service_t
+) -> Unmanaged<IOAVService>?
 
 @_silgen_name("IOAVServiceWriteI2C")
-func IOAVServiceWriteI2C(_ s: IOAVService?, _ addr: UInt32, _ reg: UInt32, _ data: UnsafePointer<UInt8>, _ len: UInt32) -> Int32
+func IOAVServiceWriteI2C(
+    _ service: IOAVService?,
+    _ addr: UInt32,
+    _ reg: UInt32,
+    _ data: UnsafePointer<UInt8>,
+    _ len: UInt32
+) -> Int32
 
-struct MonDev: Identifiable {
+struct MonitorDevice: Identifiable, Sendable {
     let id: Int
     let name: String
-    let s: IOAVService
+    let service: IOAVService
 }
 
 @MainActor
-class MonManager: ObservableObject {
-    @Published var mons: [MonDev] = []
-    @Published var cur_idx: Int = 0
-    @Published var pct: Double = 50 {
+final class MonitorManager: ObservableObject {
+    @Published var monitors: [MonitorDevice] = []
+    @Published var currentIndex: Int = 0
+    @Published var percentage: Double = 50 {
         didSet {
-            let val = Int(pct)
+            let value = Int(percentage)
+            guard monitors.indices.contains(currentIndex) else { return }
+            let service = monitors[currentIndex].service
 
-            if !mons.isEmpty, cur_idx < mons.count {
-                let service = mons[cur_idx].s
-
-                Task.detached(priority: .userInitiated) {
-                    self.set_vcp(val, on: service)
-                }
-            }
+            vcpContinuation?.yield((value: value, service: service))
         }
     }
 
+    private var vcpContinuation: AsyncStream<(value: Int, service: IOAVService)>.Continuation?
+    private var workerTask: Task<Void, Never>?
+
     init() {
+        setupVCPWorker()
         refresh()
     }
 
+    deinit {
+        workerTask?.cancel()
+    }
+
+    private func setupVCPWorker() {
+        let (stream, continuation) = AsyncStream<(value: Int, service: IOAVService)>.makeStream()
+        self.vcpContinuation = continuation
+
+        self.workerTask = Task.detached(priority: .userInitiated) {
+            for await item in stream {
+                Self.setVCPValue(item.value, on: item.service)
+            }
+        }
+    }
+
     func refresh() {
-        var found: [MonDev] = []
-        let screens = NSScreen.screens
-            .filter { NSScreen.screens.count > 1 ? ($0.frame.origin != .zero) : true }
+        var foundMonitors: [MonitorDevice] = []
+        let allScreens = NSScreen.screens
+        let externalScreenNames =
+            allScreens
+            .filter { allScreens.count <= 1 || $0.frame.origin != .zero }
             .map(\.localizedName)
 
         let matching = IOServiceMatching("DCPAVServiceProxy")
-        var iter: io_iterator_t = 0
+        var iterator: io_iterator_t = 0
 
-        if IOServiceGetMatchingServices(0, matching, &iter) == KERN_SUCCESS {
-            var cnt = 0
-            while case let entry = IOIteratorNext(iter), entry != 0 {
-                let loc = IORegistryEntryCreateCFProperty(entry, "Location" as CFString, kCFAllocatorDefault, 0)?.takeRetainedValue() as? String
-
-                if loc == "External", let s = IOAVServiceCreateWithService(kCFAllocatorDefault, entry)?.takeRetainedValue() {
-                    let name = cnt < screens.count ? screens[cnt] : "Mon \(cnt + 1)"
-                    found.append(MonDev(id: cnt, name: name, s: s))
-                    cnt += 1
-                }
-                IOObjectRelease(entry)
-            }
-            IOObjectRelease(iter)
+        guard IOServiceGetMatchingServices(0, matching, &iterator) == KERN_SUCCESS else {
+            return
         }
 
-        mons = found
-        if cur_idx >= found.count { cur_idx = 0 }
+        var count = 0
+        while case let entry = IOIteratorNext(iterator), entry != 0 {
+            defer { IOObjectRelease(entry) }
+
+            let location =
+                IORegistryEntryCreateCFProperty(
+                    entry,
+                    "Location" as CFString,
+                    kCFAllocatorDefault,
+                    0
+                )?.takeRetainedValue() as? String
+
+            guard location == "External",
+                let service = IOAVServiceCreateWithService(kCFAllocatorDefault, entry)?
+                    .takeRetainedValue()
+            else {
+                continue
+            }
+
+            let name =
+                count < externalScreenNames.count
+                ? externalScreenNames[count] : "Monitor \(count + 1)"
+            foundMonitors.append(MonitorDevice(id: count, name: name, service: service))
+            count += 1
+        }
+        IOObjectRelease(iterator)
+
+        monitors = foundMonitors
+        if currentIndex >= foundMonitors.count {
+            currentIndex = 0
+        }
     }
 
-    private nonisolated func set_vcp(_ val: Int, on s: IOAVService) {
-        var pkt: [UInt8] = [0x84, 0x03, 0x10, 0x00, UInt8(val & 0xFF), 0]
-        var chk: UInt8 = 0x6E ^ 0x51
-        for i in 0 ..< 5 {
-            chk ^= pkt[i]
-        }
-        pkt[5] = chk
+    private nonisolated static func setVCPValue(_ value: Int, on service: IOAVService) {
+        var packet: [UInt8] = [0x84, 0x03, 0x10, 0x00, UInt8(value & 0xFF), 0]
 
-        _ = IOAVServiceWriteI2C(s, 0x37, 0x51, &pkt, 6)
+        var checksum: UInt8 = 0x6E ^ 0x51
+        for index in 0..<5 {
+            checksum ^= packet[index]
+        }
+        packet[5] = checksum
+
+        _ = IOAVServiceWriteI2C(service, 0x37, 0x51, &packet, 6)
     }
 }
 
 struct ContentView: View {
-    @ObservedObject var m: MonManager
+    @ObservedObject var manager: MonitorManager
 
     var body: some View {
         VStack(spacing: 12) {
-            if !m.mons.isEmpty {
-                Picker("", selection: $m.cur_idx) {
-                    ForEach(m.mons) { mon in
-                        Text(mon.name).tag(mon.id)
+            if !manager.monitors.isEmpty {
+                Picker("", selection: $manager.currentIndex) {
+                    ForEach(manager.monitors) { monitor in
+                        Text(monitor.name).tag(monitor.id)
                     }
                 }
                 .pickerStyle(.menu)
@@ -93,40 +138,50 @@ struct ContentView: View {
                 .fixedSize()
 
                 HStack {
-                    Image(systemName: "sun.max.fill").foregroundColor(.orange)
-                    Text("\(Int(m.pct))%").font(.system(.body, design: .monospaced))
+                    Image(systemName: "sun.max.fill")
+                        .foregroundColor(.orange)
+                    Text("\(Int(manager.percentage))%")
+                        .font(.system(.body, design: .monospaced))
                 }
 
-                Slider(value: $m.pct, in: 0 ... 100).accentColor(.orange)
+                Slider(value: $manager.percentage, in: 0...100)
+                    .tint(.orange)
             } else {
-                Text("No external monitor").font(.caption).foregroundColor(.secondary)
+                Text("No external monitor")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
             }
 
             Divider()
 
-            Button("Exit") { NSApp.terminate(nil) }
-                .buttonStyle(.plain)
-                .font(.caption)
-                .foregroundColor(.secondary)
-                .frame(maxWidth: .infinity, alignment: .trailing)
+            Button("Exit") {
+                NSApp.terminate(nil)
+            }
+            .buttonStyle(.plain)
+            .font(.caption)
+            .foregroundColor(.secondary)
+            .frame(maxWidth: .infinity, alignment: .trailing)
         }
         .padding(12)
         .frame(width: 200)
-        .onAppear { m.refresh() }
+        .onAppear {
+            manager.refresh()
+        }
     }
 }
 
 @main
-struct Brightness: App {
-    @StateObject private var m = MonManager()
+struct Application: App {
+    @StateObject private var manager = MonitorManager()
 
     init() {
         NSApp?.setActivationPolicy(.accessory)
     }
 
     var body: some Scene {
-        MenuBarExtra("Br", systemImage: "sun.max") {
-            ContentView(m: m)
-        }.menuBarExtraStyle(.window)
+        MenuBarExtra("Brightness", systemImage: "sun.max") {
+            ContentView(manager: manager)
+        }
+        .menuBarExtraStyle(.window)
     }
 }
