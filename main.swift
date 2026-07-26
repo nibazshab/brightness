@@ -179,7 +179,7 @@ struct Application: App {
     }
 
     var body: some Scene {
-        MenuBarExtra("Brightness", systemImage: "sun.max") {
+        MenuBarExtra("brightness", systemImage: "sun.max") {
             ContentView(manager: manager)
         }
         .menuBarExtraStyle(.window)
