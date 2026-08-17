@@ -94,11 +94,28 @@ static void refresh_monitors(void) {
         SendMessage(g_combo, CB_RESETCONTENT, 0, 0);
 
         for (DWORD i = 0; i < g_mon_cnt; i++) {
-            SendMessage(g_combo, CB_ADDSTRING, 0, (LPARAM) (LPCWSTR) g_mons[i].szPhysicalMonitorDescription);
+            SendMessage(g_combo, CB_ADDSTRING, 0, (LPARAM)(LPCWSTR)g_mons[i].szPhysicalMonitorDescription);
         }
 
-        SendMessage(g_combo, CB_SETCURSEL, 0, 0);
-        g_cur_mon = 0;
+        if (g_mon_cnt > 0) {
+            SendMessage(g_combo, CB_SETCURSEL, 0, 0);
+            g_cur_mon = 0;
+
+            if (IsWindow(g_slider) && IsWindow(g_label)) {
+                if (mon_get_pct(0, &g_cur_pct)) {
+                    SendMessage(g_slider, TBM_SETPOS, TRUE, g_cur_pct);
+                    WCHAR buf[32];
+                    StringCchPrintf(buf, ARRAYSIZE(buf), L"%lu%%", g_cur_pct);
+                    SetWindowText(g_label, buf);
+                }
+            }
+        } else {
+            SendMessage(g_combo, CB_SETCURSEL, -1, 0);
+            if (IsWindow(g_slider) && IsWindow(g_label)) {
+                SendMessage(g_slider, TBM_SETPOS, TRUE, 0);
+                SetWindowText(g_label, L"No monitor");
+            }
+        }
     }
 }
 
@@ -236,6 +253,13 @@ static LRESULT CALLBACK main_proc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp) {
         case WM_DISPLAYCHANGE:
             refresh_monitors();
             return 0;
+
+        case WM_POWERBROADCAST:
+            if (wp == PBT_APMRESUMEAUTOMATIC || wp == PBT_APMRESUMESUSPEND) {
+                refresh_monitors();
+                return TRUE;
+            }
+            break;
 
         case WM_COMMAND:
             if (LOWORD(wp) == 1) {
