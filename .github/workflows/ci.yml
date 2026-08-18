@@ -1,6 +1,7 @@
 name: build
 
 on:
+  workflow_dispatch:
   push:
     tags:
       - 'v*'
@@ -18,8 +19,13 @@ jobs:
       - run: cmake -B build
       - run: cmake --build build --config Release
 
+      - uses: actions/upload-artifact@v4
+        with:
+          name: brightness-windows
+          path: build/Release/brightness.exe
+
       - uses: softprops/action-gh-release@v2
-        if: ${{ github.event_name != 'workflow_dispatch' }}
+        if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
@@ -52,7 +58,7 @@ jobs:
           ditto -c -k --sequesterRsrc bundle brightness.app.zip
 
       - uses: softprops/action-gh-release@v2
-        if: ${{ github.event_name != 'workflow_dispatch' }}
+        if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
