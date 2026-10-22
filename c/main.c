@@ -7,17 +7,17 @@
 #include <stdlib.h>
 #include "resource.h"
 
-#define MAX_MON            8
-#define TIMER_RESCAN       1
-#define TIMER_RESCAN_RETRY 2
-#define TIMER_HIDE_DELAY   3
+#define MAX_MON             8
+#define TIMER_RESCAN        1
+#define TIMER_RESCAN_RETRY  2
+#define TIMER_HIDE_DELAY    3
 
-#define WM_APP_REQ_REFRESH   (WM_APP + 10)
-#define WM_APP_REQ_SET_VCP   (WM_APP + 11)
-#define WM_APP_REQ_GET_VCP   (WM_APP + 12)
+#define WM_APP_REQ_REFRESH  (WM_APP + 10)
+#define WM_APP_REQ_SET_VCP  (WM_APP + 11)
+#define WM_APP_REQ_GET_VCP  (WM_APP + 12)
 
-#define WM_APP_DONE_REFRESH  (WM_APP + 20)
-#define WM_APP_DONE_GET_VCP  (WM_APP + 21)
+#define WM_APP_DONE_REFRESH (WM_APP + 20)
+#define WM_APP_DONE_GET_VCP (WM_APP + 21)
 
 typedef struct {
     DWORD mon_index;
