@@ -32,4 +32,5 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     shell32
     comctl32
     dxva2
+    setupapi
 )
