@@ -25,30 +25,26 @@
 #define WM_APP_GET_DONE (WM_APP + 20)
 #define WM_APP_REFRESH_DONE (WM_APP + 21)
 
-typedef struct
-{
+typedef struct {
     DWORD idx;
     DWORD pct;
 } SET_REQ;
 
-typedef struct
-{
+typedef struct {
     DWORD idx;
     DWORD pct;
     BOOL ok;
     DWORD seq;
 } GET_RES;
 
-typedef struct
-{
+typedef struct {
     PHYSICAL_MONITOR handle;
     DWORD vcp_max;
     WCHAR label[MON_LABEL_CCH];
     WCHAR device_path[MON_PATH_CCH];
 } MONITOR;
 
-typedef struct
-{
+typedef struct {
     WCHAR path[MON_PATH_CCH];
     WCHAR name[MON_NAME_CCH];
 } TARGET_NAME;
@@ -85,17 +81,14 @@ static void collect_targets(void)
     DISPLAYCONFIG_PATH_INFO *paths = malloc(pc * sizeof(*paths));
     DISPLAYCONFIG_MODE_INFO *modes = malloc(mc * sizeof(*modes));
 
-    if (!paths || !modes)
-    {
+    if (!paths || !modes) {
         free(paths);
         free(modes);
         return;
     }
 
-    if (QueryDisplayConfig(QDC_ONLY_ACTIVE_PATHS, &pc, paths, &mc, modes, NULL) == ERROR_SUCCESS)
-    {
-        for (UINT32 i = 0; i < pc && g_target_cnt < MAX_TARGETS; i++)
-        {
+    if (QueryDisplayConfig(QDC_ONLY_ACTIVE_PATHS, &pc, paths, &mc, modes, NULL) == ERROR_SUCCESS) {
+        for (UINT32 i = 0; i < pc && g_target_cnt < MAX_TARGETS; i++) {
             DISPLAYCONFIG_TARGET_DEVICE_NAME tn = {0};
             tn.header.type = DISPLAYCONFIG_DEVICE_INFO_GET_TARGET_NAME;
             tn.header.size = sizeof(tn);
@@ -127,8 +120,7 @@ static BOOL get_monitor_device_path(HMONITOR hm, WCHAR *out, size_t cch)
         return FALSE;
 
     DISPLAY_DEVICEW md = {.cb = sizeof(md)};
-    if (!EnumDisplayDevicesW(ad.DeviceName, 0, &md, EDD_GET_DEVICE_INTERFACE_NAME) || !md.DeviceID[0])
-    {
+    if (!EnumDisplayDevicesW(ad.DeviceName, 0, &md, EDD_GET_DEVICE_INTERFACE_NAME) || !md.DeviceID[0]) {
         ZeroMemory(&md, sizeof(md));
         md.cb = sizeof(md);
         if (!EnumDisplayDevicesW(mi.szDevice, 0, &md, EDD_GET_DEVICE_INTERFACE_NAME) || !md.DeviceID[0])
@@ -142,12 +134,9 @@ static BOOL resolve_monitor_name(HMONITOR hm, WCHAR *out, size_t cch)
     out[0] = 0;
     WCHAR path[MON_PATH_CCH];
 
-    if (get_monitor_device_path(hm, path, _countof(path)))
-    {
-        for (int i = 0; i < g_target_cnt; i++)
-        {
-            if (_wcsicmp(g_targets[i].path, path) == 0)
-            {
+    if (get_monitor_device_path(hm, path, _countof(path))) {
+        for (int i = 0; i < g_target_cnt; i++) {
+            if (_wcsicmp(g_targets[i].path, path) == 0) {
                 (void)StringCchCopyW(out, cch, g_targets[i].name);
                 return TRUE;
             }
@@ -155,15 +144,12 @@ static BOOL resolve_monitor_name(HMONITOR hm, WCHAR *out, size_t cch)
     }
 
     MONITORINFOEXW mi = {.cbSize = sizeof(mi)};
-    if (GetMonitorInfoW(hm, (LPMONITORINFO)&mi))
-    {
+    if (GetMonitorInfoW(hm, (LPMONITORINFO)&mi)) {
         DISPLAY_DEVICEW ad = {.cb = sizeof(ad)};
-        if (EnumDisplayDevicesW(mi.szDevice, 0, &ad, 0))
-        {
+        if (EnumDisplayDevicesW(mi.szDevice, 0, &ad, 0)) {
             DISPLAY_DEVICEW md = {.cb = sizeof(md)};
             if (EnumDisplayDevicesW(ad.DeviceName, 0, &md, 0) && md.DeviceString[0] &&
-                _wcsicmp(md.DeviceString, L"Generic PnP Monitor") != 0 && _wcsicmp(md.DeviceString, L"Generic Monitor") != 0)
-            {
+                _wcsicmp(md.DeviceString, L"Generic PnP Monitor") != 0 && _wcsicmp(md.DeviceString, L"Generic Monitor") != 0) {
                 (void)StringCchCopyW(out, cch, md.DeviceString);
                 return TRUE;
             }
@@ -187,14 +173,11 @@ static BOOL CALLBACK enum_proc(HMONITOR hm, HDC dc, LPRECT rc, LPARAM lp)
     if (!pm)
         return TRUE;
 
-    if (GetPhysicalMonitorsFromHMONITOR(hm, cnt, pm))
-    {
+    if (GetPhysicalMonitorsFromHMONITOR(hm, cnt, pm)) {
         DWORD i = 0;
-        for (; i < cnt && g_mon_cnt < MAX_MON; i++)
-        {
+        for (; i < cnt && g_mon_cnt < MAX_MON; i++) {
             DWORD cur, max;
-            if (!GetVCPFeatureAndVCPFeatureReply(pm[i].hPhysicalMonitor, 0x10, NULL, &cur, &max))
-            {
+            if (!GetVCPFeatureAndVCPFeatureReply(pm[i].hPhysicalMonitor, 0x10, NULL, &cur, &max)) {
                 DestroyPhysicalMonitor(pm[i].hPhysicalMonitor);
                 continue;
             }
@@ -221,12 +204,9 @@ static BOOL CALLBACK enum_proc(HMONITOR hm, HDC dc, LPRECT rc, LPARAM lp)
 
 static void label_disambiguate(void)
 {
-    for (DWORD i = 0; i < g_mon_cnt; i++)
-    {
-        for (DWORD j = 0; j < i; j++)
-        {
-            if (_wcsicmp(g_mons[i].label, g_mons[j].label) == 0)
-            {
+    for (DWORD i = 0; i < g_mon_cnt; i++) {
+        for (DWORD j = 0; j < i; j++) {
+            if (_wcsicmp(g_mons[i].label, g_mons[j].label) == 0) {
                 WCHAR buf[MON_LABEL_CCH];
                 (void)StringCchPrintfW(buf, _countof(buf), L"%s (%u)", g_mons[i].label, (unsigned)(i + 1));
                 (void)StringCchCopyW(g_mons[i].label, _countof(g_mons[i].label), buf);
@@ -238,8 +218,7 @@ static void label_disambiguate(void)
 
 static void mon_exit_locked(void)
 {
-    for (DWORD i = 0; i < g_mon_cnt; i++)
-    {
+    for (DWORD i = 0; i < g_mon_cnt; i++) {
         if (g_mons[i].handle.hPhysicalMonitor)
             DestroyPhysicalMonitor(g_mons[i].handle.hPhysicalMonitor);
 
@@ -264,10 +243,8 @@ static DWORD worker(LPVOID p)
     g_worker_tid = GetCurrentThreadId();
     SetEvent(g_worker_ready);
 
-    while (GetMessage(&msg, NULL, 0, 0) > 0)
-    {
-        if (msg.message == WM_APP_SET_VCP)
-        {
+    while (GetMessage(&msg, NULL, 0, 0) > 0) {
+        if (msg.message == WM_APP_SET_VCP) {
             SET_REQ *r = (SET_REQ *)msg.lParam;
             if (!r)
                 continue;
@@ -275,8 +252,7 @@ static DWORD worker(LPVOID p)
             BOOL ok = FALSE;
             EnterCriticalSection(&g_lock);
 
-            if (r->idx < g_mon_cnt)
-            {
+            if (r->idx < g_mon_cnt) {
                 const DWORD max = g_mons[r->idx].vcp_max ? g_mons[r->idx].vcp_max : 100;
                 const DWORD pct = r->pct > 100 ? 100 : r->pct;
                 ok = SetVCPFeature(g_mons[r->idx].handle.hPhysicalMonitor, 0x10, pct * max / 100) != 0;
@@ -286,9 +262,7 @@ static DWORD worker(LPVOID p)
             if (!ok)
                 PostMessage(g_main, WM_APP_SET_FAILED, r->idx, 0);
             free(r);
-        }
-        else if (msg.message == WM_APP_GET_VCP)
-        {
+        } else if (msg.message == WM_APP_GET_VCP) {
             const DWORD idx = (DWORD)msg.wParam, seq = (DWORD)msg.lParam;
             GET_RES *res = calloc(1, sizeof(*res));
             if (!res)
@@ -298,11 +272,9 @@ static DWORD worker(LPVOID p)
             res->seq = seq;
             EnterCriticalSection(&g_lock);
 
-            if (idx < g_mon_cnt)
-            {
+            if (idx < g_mon_cnt) {
                 DWORD cur, max;
-                if (GetVCPFeatureAndVCPFeatureReply(g_mons[idx].handle.hPhysicalMonitor, 0x10, NULL, &cur, &max))
-                {
+                if (GetVCPFeatureAndVCPFeatureReply(g_mons[idx].handle.hPhysicalMonitor, 0x10, NULL, &cur, &max)) {
                     max = max ? max : 100;
                     g_mons[idx].vcp_max = max;
                     res->pct = cur >= max ? 100 : cur * 100 / max;
@@ -312,9 +284,7 @@ static DWORD worker(LPVOID p)
 
             LeaveCriticalSection(&g_lock);
             PostMessage(g_main, WM_APP_GET_DONE, 0, (LPARAM)res);
-        }
-        else if (msg.message == WM_APP_REFRESH)
-        {
+        } else if (msg.message == WM_APP_REFRESH) {
             EnterCriticalSection(&g_lock);
             mon_exit_locked();
             mon_init_locked();
@@ -385,14 +355,11 @@ static void sync_slider_label(void)
     const BOOL has = g_mon_cnt > 0;
     LeaveCriticalSection(&g_lock);
 
-    if (has)
-    {
+    if (has) {
         if (!g_drag)
             SendMessage(g_slider, TBM_SETPOS, TRUE, g_cur_pct);
         set_label(g_cur_pct);
-    }
-    else
-    {
+    } else {
         SendMessage(g_slider, TBM_SETPOS, TRUE, 0);
         if (IsWindow(g_label))
             SetWindowText(g_label, L"No monitor");
@@ -446,15 +413,12 @@ static LRESULT CALLBACK slider_sub(HWND wnd, UINT msg, WPARAM wp, LPARAM lp, UIN
     (void)id;
     (void)ref;
 
-    switch (msg)
-    {
-    case WM_LBUTTONDOWN:
-    {
+    switch (msg) {
+    case WM_LBUTTONDOWN: {
         const POINT pt = {.x = GET_X_LPARAM(lp), .y = GET_Y_LPARAM(lp)};
         RECT th;
         SendMessage(wnd, TBM_GETTHUMBRECT, 0, (LPARAM)&th);
-        if (PtInRect(&th, pt))
-        {
+        if (PtInRect(&th, pt)) {
             g_drag = FALSE;
             break;
         }
@@ -466,18 +430,18 @@ static LRESULT CALLBACK slider_sub(HWND wnd, UINT msg, WPARAM wp, LPARAM lp, UIN
         g_drag = TRUE;
         return 0;
     }
+
     case WM_MOUSEMOVE:
-        if (g_drag)
-        {
+        if (g_drag) {
             const int pos = slider_pos_from_x(wnd, GET_X_LPARAM(lp));
             SendMessage(wnd, TBM_SETPOS, TRUE, pos);
             SendMessage(GetParent(wnd), WM_HSCROLL, MAKEWPARAM(TB_THUMBTRACK, pos), (LPARAM)wnd);
             return 0;
         }
         break;
+
     case WM_LBUTTONUP:
-        if (g_drag)
-        {
+        if (g_drag) {
             g_drag = FALSE;
             ReleaseCapture();
             const int pos = (int)SendMessage(wnd, TBM_GETPOS, 0, 0);
@@ -485,9 +449,11 @@ static LRESULT CALLBACK slider_sub(HWND wnd, UINT msg, WPARAM wp, LPARAM lp, UIN
             return 0;
         }
         break;
+
     case WM_CAPTURECHANGED:
         g_drag = FALSE;
         break;
+
     default:;
     }
 
@@ -496,8 +462,7 @@ static LRESULT CALLBACK slider_sub(HWND wnd, UINT msg, WPARAM wp, LPARAM lp, UIN
 
 static LRESULT CALLBACK slider_proc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp)
 {
-    switch (msg)
-    {
+    switch (msg) {
     case WM_CREATE:
         g_combo = CreateWindow(L"COMBOBOX", NULL, WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST, 10, 10, 280, 200, wnd, (HMENU)1, NULL, NULL);
         g_label = CreateWindow(L"STATIC", L"", WS_CHILD | WS_VISIBLE | SS_CENTER, 10, 50, 280, 20, wnd, NULL, NULL, NULL);
@@ -509,8 +474,7 @@ static LRESULT CALLBACK slider_proc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp)
         break;
 
     case WM_COMMAND:
-        if (LOWORD(wp) == 1 && HIWORD(wp) == CBN_SELCHANGE)
-        {
+        if (LOWORD(wp) == 1 && HIWORD(wp) == CBN_SELCHANGE) {
             g_cur_mon = (DWORD)SendMessage(g_combo, CB_GETCURSEL, 0, 0);
             EnterCriticalSection(&g_lock);
             if (g_cur_mon < g_mon_cnt)
@@ -518,24 +482,20 @@ static LRESULT CALLBACK slider_proc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp)
 
             LeaveCriticalSection(&g_lock);
             request_get(g_cur_mon);
-        }
-        else if (LOWORD(wp) == 2)
-        {
+        } else if (LOWORD(wp) == 2) {
             PostQuitMessage(0);
         }
         break;
 
     case WM_HSCROLL:
-        if ((HWND)lp == g_slider)
-        {
+        if ((HWND)lp == g_slider) {
             const DWORD code = LOWORD(wp);
             const DWORD pos = (DWORD)SendMessage(g_slider, TBM_GETPOS, 0, 0);
             set_label(pos);
 
             if ((code == TB_ENDTRACK || code == TB_THUMBPOSITION || code == TB_PAGEUP || code == TB_PAGEDOWN || code == TB_LINEUP ||
                  code == TB_LINEDOWN) &&
-                (pos != g_cur_pct || !g_cur_valid))
-            {
+                (pos != g_cur_pct || !g_cur_valid)) {
                 request_set(g_cur_mon, pos);
                 g_cur_pct = pos;
             }
@@ -550,8 +510,7 @@ static LRESULT CALLBACK slider_proc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp)
         break;
 
     case WM_TIMER:
-        if (wp == TIMER_HIDE_DELAY)
-        {
+        if (wp == TIMER_HIDE_DELAY) {
             KillTimer(wnd, TIMER_HIDE_DELAY);
             if (IsWindow(g_combo) && SendMessage(g_combo, CB_GETDROPPEDSTATE, 0, 0))
                 return 0;
@@ -596,15 +555,12 @@ static void show_window(void)
     if (y + h > rc.bottom)
         y = rc.bottom - h;
 
-    if (!IsWindow(g_win))
-    {
+    if (!IsWindow(g_win)) {
         g_win = CreateWindowEx(WS_EX_TOOLWINDOW | WS_EX_TOPMOST, L"br_slider", NULL, WS_POPUP | WS_BORDER, x, y, w, h, NULL, NULL,
                                GetModuleHandle(NULL), NULL);
         if (!g_win)
             return;
-    }
-    else
-    {
+    } else {
         SetWindowPos(g_win, HWND_TOPMOST, x, y, w, h, SWP_NOACTIVATE | SWP_SHOWWINDOW);
     }
 
@@ -634,17 +590,14 @@ static void schedule_rescan(const BOOL reset_budget)
 
 static LRESULT CALLBACK main_proc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp)
 {
-    if (g_taskbar_msg && msg == g_taskbar_msg)
-    {
+    if (g_taskbar_msg && msg == g_taskbar_msg) {
         Shell_NotifyIcon(NIM_ADD, &g_nid);
         return 0;
     }
 
-    switch (msg)
-    {
+    switch (msg) {
     case WM_USER + 1:
-        if (lp == WM_LBUTTONUP || lp == WM_RBUTTONUP)
-        {
+        if (lp == WM_LBUTTONUP || lp == WM_RBUTTONUP) {
             const ULONGLONG now = GetTickCount64();
             if (now - g_last_toggle < GetDoubleClickTime())
                 return 0;
@@ -660,11 +613,9 @@ static LRESULT CALLBACK main_proc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp)
         }
         return 0;
 
-    case WM_APP_SET_FAILED:
-    {
+    case WM_APP_SET_FAILED: {
         const DWORD idx = (DWORD)wp;
-        if (idx == g_cur_mon)
-        {
+        if (idx == g_cur_mon) {
             g_cur_valid = FALSE;
             if (!g_drag)
                 request_get(g_cur_mon);
@@ -672,13 +623,10 @@ static LRESULT CALLBACK main_proc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp)
         return 0;
     }
 
-    case WM_APP_GET_DONE:
-    {
+    case WM_APP_GET_DONE: {
         GET_RES *r = (GET_RES *)lp;
-        if (r)
-        {
-            if (r->seq == g_get_seq && r->ok && !g_drag)
-            {
+        if (r) {
+            if (r->seq == g_get_seq && r->ok && !g_drag) {
                 g_cur_pct = r->pct;
                 g_cur_valid = TRUE;
                 sync_slider_label();
@@ -688,28 +636,21 @@ static LRESULT CALLBACK main_proc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp)
         return 0;
     }
 
-    case WM_APP_REFRESH_DONE:
-    {
+    case WM_APP_REFRESH_DONE: {
         const DWORD cnt = (DWORD)wp;
-        if (cnt > 0)
-        {
+        if (cnt > 0) {
             g_retry_budget = 0;
             DWORD new_idx = 0;
             EnterCriticalSection(&g_lock);
 
-            if (g_cur_devpath[0])
-            {
-                for (DWORD i = 0; i < g_mon_cnt; i++)
-                {
-                    if (_wcsicmp(g_mons[i].device_path, g_cur_devpath) == 0)
-                    {
+            if (g_cur_devpath[0]) {
+                for (DWORD i = 0; i < g_mon_cnt; i++) {
+                    if (_wcsicmp(g_mons[i].device_path, g_cur_devpath) == 0) {
                         new_idx = i;
                         break;
                     }
                 }
-            }
-            else if (g_cur_mon < g_mon_cnt)
-            {
+            } else if (g_cur_mon < g_mon_cnt) {
                 new_idx = g_cur_mon;
             }
 
@@ -718,27 +659,22 @@ static LRESULT CALLBACK main_proc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp)
             g_cur_mon = new_idx;
             g_cur_valid = FALSE;
 
-            if (IsWindow(g_win) && IsWindowVisible(g_win))
-            {
+            if (IsWindow(g_win) && IsWindowVisible(g_win)) {
                 rebuild_combo();
                 sync_slider_label();
             }
 
             request_get(g_cur_mon);
-        }
-        else
-        {
+        } else {
             g_cur_mon = 0;
             g_cur_devpath[0] = 0;
             g_cur_valid = FALSE;
 
-            if (IsWindow(g_win) && IsWindowVisible(g_win))
-            {
+            if (IsWindow(g_win) && IsWindowVisible(g_win)) {
                 rebuild_combo();
                 sync_slider_label();
             }
-            if (g_retry_budget > 0)
-            {
+            if (g_retry_budget > 0) {
                 g_retry_budget--;
                 schedule_rescan(FALSE);
             }
@@ -747,8 +683,7 @@ static LRESULT CALLBACK main_proc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp)
     }
 
     case WM_TIMER:
-        if (wp == TIMER_RESCAN)
-        {
+        if (wp == TIMER_RESCAN) {
             KillTimer(wnd, TIMER_RESCAN);
             if (g_worker_tid)
                 PostThreadMessage(g_worker_tid, WM_APP_REFRESH, 0, 0);
@@ -757,12 +692,10 @@ static LRESULT CALLBACK main_proc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp)
         break;
 
     case WM_DEVICECHANGE:
-        if (wp == DBT_DEVICEARRIVAL || wp == DBT_DEVICEREMOVECOMPLETE)
-        {
+        if (wp == DBT_DEVICEARRIVAL || wp == DBT_DEVICEREMOVECOMPLETE) {
             DEV_BROADCAST_HDR *h = (DEV_BROADCAST_HDR *)lp;
             if (h && h->dbch_devicetype == DBT_DEVTYP_DEVICEINTERFACE &&
-                IsEqualGUID(&((DEV_BROADCAST_DEVICEINTERFACE_W *)h)->dbcc_classguid, &GUID_DEVINTERFACE_MONITOR))
-            {
+                IsEqualGUID(&((DEV_BROADCAST_DEVICEINTERFACE_W *)h)->dbcc_classguid, &GUID_DEVINTERFACE_MONITOR)) {
                 schedule_rescan(TRUE);
                 return TRUE;
             }
@@ -774,8 +707,7 @@ static LRESULT CALLBACK main_proc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp)
         return 0;
 
     case WM_POWERBROADCAST:
-        if (wp == PBT_APMRESUMEAUTOMATIC || wp == PBT_APMRESUMESUSPEND)
-        {
+        if (wp == PBT_APMRESUMEAUTOMATIC || wp == PBT_APMRESUMESUSPEND) {
             schedule_rescan(TRUE);
             return TRUE;
         }
@@ -812,15 +744,13 @@ int WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmd, int show)
     RegisterClassEx(&wc);
 
     g_worker_thread = CreateThread(NULL, 0, worker, NULL, 0, NULL);
-    if (!g_worker_thread || WaitForSingleObject(g_worker_ready, 2000) != WAIT_OBJECT_0)
-    {
+    if (!g_worker_thread || WaitForSingleObject(g_worker_ready, 2000) != WAIT_OBJECT_0) {
         MessageBoxW(NULL, L"DDC worker failed to start.", L"Error", MB_ICONERROR);
         return 1;
     }
 
     g_main = CreateWindowEx(WS_EX_TOOLWINDOW, L"br_main", L"", WS_POPUP, 0, 0, 0, 0, NULL, NULL, inst, NULL);
-    if (!g_main)
-    {
+    if (!g_main) {
         PostThreadMessage(g_worker_tid, WM_QUIT, 0, 0);
         WaitForSingleObject(g_worker_thread, 2000);
         return 1;
@@ -843,8 +773,7 @@ int WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmd, int show)
                                    GetSystemMetrics(SM_CYSMICON), LR_DEFAULTCOLOR);
     if (g_nid.hIcon)
         g_nid_owned_icon = TRUE;
-    else
-    {
+    else {
         g_nid.hIcon = LoadIcon(NULL, IDI_APPLICATION);
         g_nid_owned_icon = FALSE;
     }
@@ -856,14 +785,12 @@ int WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmd, int show)
     PostThreadMessage(g_worker_tid, WM_APP_REFRESH, 0, 0);
 
     MSG m;
-    while (GetMessage(&m, NULL, 0, 0) > 0)
-    {
+    while (GetMessage(&m, NULL, 0, 0) > 0) {
         TranslateMessage(&m);
         DispatchMessage(&m);
     }
 
-    if (g_worker_thread)
-    {
+    if (g_worker_thread) {
         PostThreadMessage(g_worker_tid, WM_QUIT, 0, 0);
         WaitForSingleObject(g_worker_thread, INFINITE);
         CloseHandle(g_worker_thread);
