@@ -355,6 +355,7 @@ static LRESULT CALLBACK slider_sub(HWND wnd, UINT msg, WPARAM wp, LPARAM lp, UIN
     (void) wp;
     (void) id;
     (void) ref;
+
     switch (msg) {
         case WM_LBUTTONDOWN: {
             const POINT pt = {.x = GET_X_LPARAM(lp), .y = GET_Y_LPARAM(lp)};
