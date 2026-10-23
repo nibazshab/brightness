@@ -575,19 +575,14 @@ static LRESULT CALLBACK slider_subclass(HWND wnd, UINT msg, WPARAM wp, LPARAM lp
 static LRESULT CALLBACK slider_proc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp) {
     switch (msg) {
         case WM_CREATE: {
-            g_combo = CreateWindow(L"COMBOBOX", NULL,
-                                   WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST,
-                                   10, 10, 280, 200, wnd, (HMENU) 1, NULL, NULL);
-            g_label = CreateWindow(L"STATIC", L"", WS_CHILD | WS_VISIBLE | SS_CENTER,
-                                   10, 50, 280, 20, wnd, NULL, NULL, NULL);
-            g_slider = CreateWindow(TRACKBAR_CLASS, NULL,
-                                    WS_CHILD | WS_VISIBLE | TBS_HORZ,
-                                    10, 80, 280, 30, wnd, NULL, NULL, NULL);
+            g_combo = CreateWindow(L"COMBOBOX", NULL, WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST, 10, 10, 280, 200, wnd, (HMENU) 1, NULL,
+                                   NULL);
+            g_label = CreateWindow(L"STATIC", L"", WS_CHILD | WS_VISIBLE | SS_CENTER, 10, 50, 280, 20, wnd, NULL, NULL, NULL);
+            g_slider = CreateWindow(TRACKBAR_CLASS, NULL, WS_CHILD | WS_VISIBLE | TBS_HORZ, 10, 80, 280, 30, wnd, NULL, NULL, NULL);
             SendMessage(g_slider, TBM_SETRANGE, TRUE, MAKELONG(0, 100));
             SendMessage(g_slider, TBM_SETPOS, TRUE, g_cur_pct);
             SetWindowSubclass(g_slider, slider_subclass, 1, 0);
-            CreateWindow(L"BUTTON", L"Exit", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-                         210, 115, 80, 25, wnd, (HMENU) 2, NULL, NULL);
+            CreateWindow(L"BUTTON", L"Exit", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 210, 115, 80, 25, wnd, (HMENU) 2, NULL, NULL);
             break;
         }
 
