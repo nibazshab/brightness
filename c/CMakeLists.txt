@@ -19,7 +19,7 @@ target_compile_definitions(${PROJECT_NAME} PRIVATE
 
 target_compile_options(${PROJECT_NAME} PRIVATE
     /W4 /permissive- /utf-8 /Zi
-    $<$<CONFIG:Release,MinSizeRel>:/O1 /GL /Gy /GS->
+    $<$<CONFIG:Release,MinSizeRel>:/O2 /GL /Gy /GS->
     $<$<CONFIG:Debug>:/Od /RTC1>
 )
 
