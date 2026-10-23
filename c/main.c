@@ -289,6 +289,10 @@ static BOOL resolve_monitor_name(HMONITOR hm, WCHAR *out, size_t out_cch) {
 }
 
 static BOOL CALLBACK enum_proc(HMONITOR hm, HDC dc, LPRECT rc, LPARAM lp) {
+    (void) dc;
+    (void) rc;
+    (void) lp;
+
     DWORD cnt;
     if (!GetNumberOfPhysicalMonitorsFromHMONITOR(hm, &cnt) || !cnt) return TRUE;
 
@@ -333,6 +337,8 @@ static void mon_exit_locked(void) {
 }
 
 static DWORD WINAPI vcp_worker(LPVOID param) {
+    (void) param;
+
     MSG msg;
     PeekMessage(&msg, NULL, WM_USER, WM_USER, PM_NOREMOVE);
     g_worker_tid = GetCurrentThreadId();
@@ -442,6 +448,9 @@ static int slider_pos_from_x(HWND wnd, int x) {
 }
 
 static LRESULT CALLBACK slider_subclass(HWND wnd, UINT msg, WPARAM wp, LPARAM lp, UINT_PTR id, DWORD_PTR ref) {
+    (void) id;
+    (void) ref;
+
     switch (msg) {
         case WM_LBUTTONDOWN: {
             const POINT pt = {.x = GET_X_LPARAM(lp), .y = GET_Y_LPARAM(lp)};
@@ -676,6 +685,10 @@ static LRESULT CALLBACK main_proc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp) {
 }
 
 int WinMain(HINSTANCE inst, HINSTANCE a, LPSTR b, int c) {
+    (void) a;
+    (void) b;
+    (void) c;
+
     InitializeCriticalSection(&g_mon_lock);
     g_worker_ready_event = CreateEvent(NULL, TRUE, FALSE, NULL);
 
