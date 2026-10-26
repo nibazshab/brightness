@@ -24,6 +24,12 @@
 #define WM_APP_SET_FAILED (WM_APP + 13)
 #define WM_APP_GET_DONE (WM_APP + 20)
 #define WM_APP_REFRESH_DONE (WM_APP + 21)
+#define RESCAN_RETRY_BUDGET 10
+#define RESCAN_INTERVAL_MS 1500
+#define DDC_WRITE_RETRIES 3
+#define DDC_WRITE_DELAY_MS 200
+#define DDC_READ_RETRIES 3
+#define DDC_READ_DELAY_MS 150
 
 typedef struct {
     DWORD idx;
@@ -255,7 +261,14 @@ static DWORD worker(LPVOID p)
             if (r->idx < g_mon_cnt) {
                 const DWORD max = g_mons[r->idx].vcp_max ? g_mons[r->idx].vcp_max : 100;
                 const DWORD pct = r->pct > 100 ? 100 : r->pct;
-                ok = SetVCPFeature(g_mons[r->idx].handle.hPhysicalMonitor, 0x10, pct * max / 100) != 0;
+                const DWORD target_value = pct * max / 100;
+
+                for (int attempt = 0; attempt < DDC_WRITE_RETRIES; ++attempt) {
+                    ok = SetVCPFeature(g_mons[r->idx].handle.hPhysicalMonitor, 0x10, target_value) != 0;
+                    if (ok)
+                        break;
+                    Sleep(DDC_WRITE_DELAY_MS);
+                }
             }
 
             LeaveCriticalSection(&g_lock);
@@ -273,12 +286,16 @@ static DWORD worker(LPVOID p)
             EnterCriticalSection(&g_lock);
 
             if (idx < g_mon_cnt) {
-                DWORD cur, max;
-                if (GetVCPFeatureAndVCPFeatureReply(g_mons[idx].handle.hPhysicalMonitor, 0x10, NULL, &cur, &max)) {
-                    max = max ? max : 100;
-                    g_mons[idx].vcp_max = max;
-                    res->pct = cur >= max ? 100 : cur * 100 / max;
-                    res->ok = TRUE;
+                for (int attempt = 0; attempt < DDC_READ_RETRIES; ++attempt) {
+                    DWORD cur, max;
+                    if (GetVCPFeatureAndVCPFeatureReply(g_mons[idx].handle.hPhysicalMonitor, 0x10, NULL, &cur, &max)) {
+                        max = max ? max : 100;
+                        g_mons[idx].vcp_max = max;
+                        res->pct = cur >= max ? 100 : cur * 100 / max;
+                        res->ok = TRUE;
+                        break;
+                    }
+                    Sleep(DDC_READ_DELAY_MS);
                 }
             }
 
@@ -581,11 +598,12 @@ static void schedule_rescan(const BOOL reset_budget)
 {
     if (!g_main)
         return;
-    if (reset_budget)
-        g_retry_budget = 2;
+    if (reset_budget) {
+        g_retry_budget = RESCAN_RETRY_BUDGET;
+    }
 
     KillTimer(g_main, TIMER_RESCAN);
-    SetTimer(g_main, TIMER_RESCAN, 600, NULL);
+    SetTimer(g_main, TIMER_RESCAN, RESCAN_INTERVAL_MS, NULL);
 }
 
 static LRESULT CALLBACK main_proc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp)
@@ -641,18 +659,21 @@ static LRESULT CALLBACK main_proc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp)
         if (cnt > 0) {
             g_retry_budget = 0;
             DWORD new_idx = 0;
+            BOOL matched_by_path = FALSE;
             EnterCriticalSection(&g_lock);
 
             if (g_cur_devpath[0]) {
                 for (DWORD i = 0; i < g_mon_cnt; i++) {
                     if (_wcsicmp(g_mons[i].device_path, g_cur_devpath) == 0) {
                         new_idx = i;
+                        matched_by_path = TRUE;
                         break;
                     }
                 }
-            } else if (g_cur_mon < g_mon_cnt) {
-                new_idx = g_cur_mon;
             }
+
+            if (!matched_by_path && g_cur_mon < g_mon_cnt)
+                new_idx = g_cur_mon;
 
             (void)StringCchCopyW(g_cur_devpath, _countof(g_cur_devpath), g_mons[new_idx].device_path);
             LeaveCriticalSection(&g_lock);
@@ -781,7 +802,7 @@ int WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmd, int show)
     (void)StringCchCopy(g_nid.szTip, ARRAYSIZE(g_nid.szTip), L"brightness");
     Shell_NotifyIcon(NIM_ADD, &g_nid);
 
-    g_retry_budget = 2;
+    g_retry_budget = RESCAN_RETRY_BUDGET;
     PostThreadMessage(g_worker_tid, WM_APP_REFRESH, 0, 0);
 
     MSG m;
