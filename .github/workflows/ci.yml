@@ -45,16 +45,14 @@ jobs:
           INFOPLIST_KEY_CFBundlePackageType: APPL
           INFOPLIST_KEY_LSUIElement: YES
           OTHER_SWIFT_FLAGS: -parse-as-library
-        run: xcodebuild -scheme brightness -configuration Release -derivedDataPath .build -destination "platform=macOS"
-
-      - run: |
+        run: |
+          cd swift
+          xcodebuild -scheme brightness -configuration Release -derivedDataPath .build -destination "platform=macOS"
           mkdir -p brightness.app/Contents/MacOS
           mkdir -p brightness.app/Contents/Resources
           cp .build/Build/Products/Release/brightness brightness.app/Contents/MacOS/brightness
           cp logo.icns brightness.app/Contents/Resources/logo.icns
           cp Info.plist brightness.app/Contents/Info.plist
-
-      - run: |
           mkdir bundle
           mv brightness.app bundle/brightness.app
           ditto -c -k --sequesterRsrc bundle brightness.app.zip
@@ -64,4 +62,4 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          files: brightness.app.zip
+          files: swift/brightness.app.zip
