@@ -18,9 +18,9 @@ target_compile_definitions(${PROJECT_NAME} PRIVATE
 )
 
 target_compile_options(${PROJECT_NAME} PRIVATE
-    /W4 /permissive- /utf-8 /Zi
+    /W4 /utf-8
     $<$<CONFIG:Release,MinSizeRel>:/O2 /GL /Gy /GS->
-    $<$<CONFIG:Debug>:/Od /RTC1>
+    $<$<CONFIG:Debug>:/Od /RTC1 /Zi>
 )
 
 target_link_options(${PROJECT_NAME} PRIVATE
@@ -32,5 +32,4 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     shell32
     comctl32
     dxva2
-    setupapi
 )
