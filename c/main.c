@@ -1,6 +1,7 @@
 #include <initguid.h>
 #include <windows.h>
 #include <windowsx.h>
+
 #include <commctrl.h>
 #include <dbt.h>
 #include <lowlevelmonitorconfigurationapi.h>
@@ -16,14 +17,20 @@
 #define MON_NAME_CCH 128
 #define MON_LABEL_CCH 160
 #define MON_PATH_CCH 256
+#define PCT_MAX 100
+#define DEFAULT_VCP_MAX 100
+#define VCP_BRIGHTNESS 0x10
 #define TIMER_RESCAN 1
-#define TIMER_HIDE_DELAY 3
+#define TIMER_HIDE 3
+#define WM_TRAYICON (WM_USER + 1)
+#define IDC_MONITOR 1
+#define IDC_EXIT 2
 #define WM_APP_SET_VCP (WM_APP + 10)
 #define WM_APP_GET_VCP (WM_APP + 11)
 #define WM_APP_REFRESH (WM_APP + 12)
-#define WM_APP_SET_FAILED (WM_APP + 13)
-#define WM_APP_GET_DONE (WM_APP + 20)
-#define WM_APP_REFRESH_DONE (WM_APP + 21)
+#define WM_APP_SET_FAILED (WM_APP + 20)
+#define WM_APP_GET_DONE (WM_APP + 21)
+#define WM_APP_REFRESH_DONE (WM_APP + 22)
 #define RESCAN_RETRY_BUDGET 10
 #define RESCAN_INTERVAL_MS 1500
 #define DDC_WRITE_RETRIES 3
@@ -34,26 +41,25 @@
 typedef struct {
     DWORD idx;
     DWORD pct;
+    WCHAR path[MON_PATH_CCH];
 } SET_REQ;
 
 typedef struct {
-    DWORD idx;
     DWORD pct;
     BOOL ok;
     DWORD seq;
 } GET_RES;
 
 typedef struct {
-    PHYSICAL_MONITOR handle;
-    DWORD vcp_max;
-    WCHAR label[MON_LABEL_CCH];
-    WCHAR device_path[MON_PATH_CCH];
-} MONITOR;
-
-typedef struct {
     WCHAR label[MON_LABEL_CCH];
     WCHAR device_path[MON_PATH_CCH];
 } MON_INFO;
+
+typedef struct {
+    PHYSICAL_MONITOR handle;
+    DWORD vcp_max;
+    MON_INFO info;
+} MONITOR;
 
 typedef struct {
     WCHAR path[MON_PATH_CCH];
@@ -62,10 +68,8 @@ typedef struct {
 
 static HWND g_main, g_win, g_slider, g_label, g_combo;
 static NOTIFYICONDATA g_nid;
-static BOOL g_nid_owned_icon = FALSE;
 static HDEVNOTIFY g_devnotify = NULL;
 static UINT g_taskbar_msg = 0;
-static ULONGLONG g_last_toggle = 0;
 static MONITOR g_mons[MAX_MON];
 static DWORD g_mon_cnt = 0;
 static MON_INFO g_ui[MAX_MON];
@@ -114,8 +118,8 @@ static void collect_targets(void)
             if (!tn.monitorFriendlyDeviceName[0] || !tn.monitorDevicePath[0])
                 continue;
 
-            (void)StringCchCopyW(g_targets[g_target_cnt].path, MON_PATH_CCH, tn.monitorDevicePath);
-            (void)StringCchCopyW(g_targets[g_target_cnt].name, MON_NAME_CCH, tn.monitorFriendlyDeviceName);
+            (void)StringCchCopy(g_targets[g_target_cnt].path, MON_PATH_CCH, tn.monitorDevicePath);
+            (void)StringCchCopy(g_targets[g_target_cnt].name, MON_NAME_CCH, tn.monitorFriendlyDeviceName);
             g_target_cnt++;
         }
     }
@@ -125,22 +129,22 @@ static void collect_targets(void)
 
 static BOOL get_monitor_device_path(HMONITOR hm, WCHAR *out, size_t cch)
 {
-    MONITORINFOEXW mi = {.cbSize = sizeof(mi)};
-    if (!GetMonitorInfoW(hm, (LPMONITORINFO)&mi))
+    MONITORINFOEX mi = {.cbSize = sizeof(mi)};
+    if (!GetMonitorInfo(hm, (LPMONITORINFO)&mi))
         return FALSE;
 
-    DISPLAY_DEVICEW ad = {.cb = sizeof(ad)};
-    if (!EnumDisplayDevicesW(mi.szDevice, 0, &ad, 0))
+    DISPLAY_DEVICE ad = {.cb = sizeof(ad)};
+    if (!EnumDisplayDevices(mi.szDevice, 0, &ad, 0))
         return FALSE;
 
-    DISPLAY_DEVICEW md = {.cb = sizeof(md)};
-    if (!EnumDisplayDevicesW(ad.DeviceName, 0, &md, EDD_GET_DEVICE_INTERFACE_NAME) || !md.DeviceID[0]) {
+    DISPLAY_DEVICE md = {.cb = sizeof(md)};
+    if (!EnumDisplayDevices(ad.DeviceName, 0, &md, EDD_GET_DEVICE_INTERFACE_NAME) || !md.DeviceID[0]) {
         ZeroMemory(&md, sizeof(md));
         md.cb = sizeof(md);
-        if (!EnumDisplayDevicesW(mi.szDevice, 0, &md, EDD_GET_DEVICE_INTERFACE_NAME) || !md.DeviceID[0])
+        if (!EnumDisplayDevices(mi.szDevice, 0, &md, EDD_GET_DEVICE_INTERFACE_NAME) || !md.DeviceID[0])
             return FALSE;
     }
-    return SUCCEEDED(StringCchCopyW(out, cch, md.DeviceID));
+    return SUCCEEDED(StringCchCopy(out, cch, md.DeviceID));
 }
 
 static BOOL resolve_monitor_name(HMONITOR hm, WCHAR *out, size_t cch)
@@ -151,20 +155,20 @@ static BOOL resolve_monitor_name(HMONITOR hm, WCHAR *out, size_t cch)
     if (get_monitor_device_path(hm, path, _countof(path))) {
         for (DWORD i = 0; i < g_target_cnt; i++) {
             if (_wcsicmp(g_targets[i].path, path) == 0) {
-                (void)StringCchCopyW(out, cch, g_targets[i].name);
+                (void)StringCchCopy(out, cch, g_targets[i].name);
                 return TRUE;
             }
         }
     }
 
-    MONITORINFOEXW mi = {.cbSize = sizeof(mi)};
-    if (GetMonitorInfoW(hm, (LPMONITORINFO)&mi)) {
-        DISPLAY_DEVICEW ad = {.cb = sizeof(ad)};
-        if (EnumDisplayDevicesW(mi.szDevice, 0, &ad, 0)) {
-            DISPLAY_DEVICEW md = {.cb = sizeof(md)};
-            if (EnumDisplayDevicesW(ad.DeviceName, 0, &md, 0) && md.DeviceString[0] &&
+    MONITORINFOEX mi = {.cbSize = sizeof(mi)};
+    if (GetMonitorInfo(hm, (LPMONITORINFO)&mi)) {
+        DISPLAY_DEVICE ad = {.cb = sizeof(ad)};
+        if (EnumDisplayDevices(mi.szDevice, 0, &ad, 0)) {
+            DISPLAY_DEVICE md = {.cb = sizeof(md)};
+            if (EnumDisplayDevices(ad.DeviceName, 0, &md, 0) && md.DeviceString[0] &&
                 _wcsicmp(md.DeviceString, L"Generic PnP Monitor") != 0 && _wcsicmp(md.DeviceString, L"Generic Monitor") != 0) {
-                (void)StringCchCopyW(out, cch, md.DeviceString);
+                (void)StringCchCopy(out, cch, md.DeviceString);
                 return TRUE;
             }
         }
@@ -191,7 +195,7 @@ static BOOL CALLBACK enum_proc(HMONITOR hm, HDC dc, LPRECT rc, LPARAM lp)
         DWORD i = 0;
         for (; i < cnt && g_mon_cnt < MAX_MON; i++) {
             DWORD cur, max;
-            if (!GetVCPFeatureAndVCPFeatureReply(pm[i].hPhysicalMonitor, 0x10, NULL, &cur, &max)) {
+            if (!GetVCPFeatureAndVCPFeatureReply(pm[i].hPhysicalMonitor, VCP_BRIGHTNESS, NULL, &cur, &max)) {
                 DestroyPhysicalMonitor(pm[i].hPhysicalMonitor);
                 continue;
             }
@@ -199,14 +203,14 @@ static BOOL CALLBACK enum_proc(HMONITOR hm, HDC dc, LPRECT rc, LPARAM lp)
             MONITOR *m = &g_mons[g_mon_cnt];
             ZeroMemory(m, sizeof(*m));
             m->handle = pm[i];
-            m->vcp_max = max ? max : 100;
+            m->vcp_max = max ? max : DEFAULT_VCP_MAX;
 
-            if (!resolve_monitor_name(hm, m->label, _countof(m->label)))
-                (void)StringCchCopyW(m->label, _countof(m->label), pm[i].szPhysicalMonitorDescription);
-            if (!m->label[0])
-                (void)StringCchCopyW(m->label, _countof(m->label), L"Monitor");
+            if (!resolve_monitor_name(hm, m->info.label, _countof(m->info.label)))
+                (void)StringCchCopy(m->info.label, _countof(m->info.label), pm[i].szPhysicalMonitorDescription);
+            if (!m->info.label[0])
+                (void)StringCchCopy(m->info.label, _countof(m->info.label), L"Monitor");
 
-            (void)StringCchCopyW(m->device_path, _countof(m->device_path), path);
+            (void)StringCchCopy(m->info.device_path, _countof(m->info.device_path), path);
             g_mon_cnt++;
         }
         for (; i < cnt; i++)
@@ -220,10 +224,10 @@ static void label_disambiguate(void)
 {
     for (DWORD i = 0; i < g_mon_cnt; i++) {
         for (DWORD j = 0; j < i; j++) {
-            if (_wcsicmp(g_mons[i].label, g_mons[j].label) == 0) {
+            if (_wcsicmp(g_mons[i].info.label, g_mons[j].info.label) == 0) {
                 WCHAR buf[MON_LABEL_CCH];
-                (void)StringCchPrintfW(buf, _countof(buf), L"%s (%u)", g_mons[i].label, (unsigned)(i + 1));
-                (void)StringCchCopyW(g_mons[i].label, _countof(g_mons[i].label), buf);
+                (void)StringCchPrintf(buf, _countof(buf), L"%s (%u)", g_mons[i].info.label, (unsigned)(i + 1));
+                (void)StringCchCopy(g_mons[i].info.label, _countof(g_mons[i].info.label), buf);
                 break;
             }
         }
@@ -240,24 +244,21 @@ static void mon_exit(void)
     g_mon_cnt = 0;
 }
 
-static void publish_snapshot(void)
+static void mon_refresh(void)
 {
-    EnterCriticalSection(&g_lock);
-    for (DWORD i = 0; i < g_mon_cnt; i++) {
-        (void)StringCchCopyW(g_ui[i].label, _countof(g_ui[i].label), g_mons[i].label);
-        (void)StringCchCopyW(g_ui[i].device_path, _countof(g_ui[i].device_path), g_mons[i].device_path);
-    }
-    g_ui_cnt = g_mon_cnt;
-    LeaveCriticalSection(&g_lock);
-}
-
-static void mon_init(void)
-{
-    g_mon_cnt = 0;
+    mon_exit();
     collect_targets();
     EnumDisplayMonitors(NULL, NULL, enum_proc, 0);
     label_disambiguate();
-    publish_snapshot();
+}
+
+static void publish_snapshot(void)
+{
+    EnterCriticalSection(&g_lock);
+    for (DWORD i = 0; i < g_mon_cnt; i++)
+        g_ui[i] = g_mons[i].info;
+    g_ui_cnt = g_mon_cnt;
+    LeaveCriticalSection(&g_lock);
 }
 
 static DWORD worker(LPVOID p)
@@ -269,19 +270,21 @@ static DWORD worker(LPVOID p)
     SetEvent(g_worker_ready);
 
     while (GetMessage(&msg, NULL, 0, 0) > 0) {
-        if (msg.message == WM_APP_SET_VCP) {
+        switch (msg.message) {
+        case WM_APP_SET_VCP: {
             SET_REQ *r = (SET_REQ *)msg.lParam;
             if (!r)
-                continue;
+                break;
 
             BOOL ok = FALSE;
-            if (r->idx < g_mon_cnt) {
-                const DWORD max = g_mons[r->idx].vcp_max ? g_mons[r->idx].vcp_max : 100;
-                const DWORD pct = r->pct > 100 ? 100 : r->pct;
-                const DWORD target_value = pct * max / 100;
+
+            if (r->idx < g_mon_cnt && _wcsicmp(g_mons[r->idx].info.device_path, r->path) == 0) {
+                const DWORD max = g_mons[r->idx].vcp_max ? g_mons[r->idx].vcp_max : DEFAULT_VCP_MAX;
+                const DWORD pct = r->pct > PCT_MAX ? PCT_MAX : r->pct;
+                const DWORD target_value = pct * max / PCT_MAX;
 
                 for (int attempt = 0; attempt < DDC_WRITE_RETRIES; ++attempt) {
-                    ok = SetVCPFeature(g_mons[r->idx].handle.hPhysicalMonitor, 0x10, target_value) != 0;
+                    ok = SetVCPFeature(g_mons[r->idx].handle.hPhysicalMonitor, VCP_BRIGHTNESS, target_value) != 0;
                     if (ok)
                         break;
                     Sleep(DDC_WRITE_DELAY_MS);
@@ -291,21 +294,23 @@ static DWORD worker(LPVOID p)
             if (!ok)
                 PostMessage(g_main, WM_APP_SET_FAILED, r->idx, 0);
             free(r);
-        } else if (msg.message == WM_APP_GET_VCP) {
+            break;
+        }
+
+        case WM_APP_GET_VCP: {
             const DWORD idx = (DWORD)msg.wParam, seq = (DWORD)msg.lParam;
             GET_RES *res = calloc(1, sizeof(*res));
             if (!res)
-                continue;
+                break;
 
-            res->idx = idx;
             res->seq = seq;
             if (idx < g_mon_cnt) {
                 for (int attempt = 0; attempt < DDC_READ_RETRIES; ++attempt) {
                     DWORD cur, max;
-                    if (GetVCPFeatureAndVCPFeatureReply(g_mons[idx].handle.hPhysicalMonitor, 0x10, NULL, &cur, &max)) {
-                        max = max ? max : 100;
+                    if (GetVCPFeatureAndVCPFeatureReply(g_mons[idx].handle.hPhysicalMonitor, VCP_BRIGHTNESS, NULL, &cur, &max)) {
+                        max = max ? max : DEFAULT_VCP_MAX;
                         g_mons[idx].vcp_max = max;
-                        res->pct = cur >= max ? 100 : cur * 100 / max;
+                        res->pct = cur >= max ? PCT_MAX : cur * PCT_MAX / max;
                         res->ok = TRUE;
                         break;
                     }
@@ -314,10 +319,14 @@ static DWORD worker(LPVOID p)
             }
 
             PostMessage(g_main, WM_APP_GET_DONE, 0, (LPARAM)res);
-        } else if (msg.message == WM_APP_REFRESH) {
-            mon_exit();
-            mon_init();
+            break;
+        }
+
+        case WM_APP_REFRESH:
+            mon_refresh();
+            publish_snapshot();
             PostMessage(g_main, WM_APP_REFRESH_DONE, g_mon_cnt, 0);
+            break;
         }
     }
 
@@ -351,12 +360,13 @@ static void request_set(const DWORD idx, const DWORD pct)
         return;
 
     g_get_seq++;
-    SET_REQ *r = malloc(sizeof(*r));
+    SET_REQ *r = calloc(1, sizeof(*r));
     if (!r)
         return;
 
     r->idx = idx;
     r->pct = pct;
+    (void)StringCchCopy(r->path, _countof(r->path), g_cur_devpath);
     if (!PostThreadMessage(g_worker_tid, WM_APP_SET_VCP, 0, (LPARAM)r))
         free(r);
 }
@@ -402,12 +412,12 @@ static void rebuild_combo(void)
     WCHAR labels[MAX_MON][MON_LABEL_CCH];
 
     for (DWORD i = 0; i < cnt; i++)
-        (void)StringCchCopyW(labels[i], MON_LABEL_CCH, g_ui[i].label);
+        (void)StringCchCopy(labels[i], MON_LABEL_CCH, g_ui[i].label);
 
     if (g_cur_mon >= cnt)
         g_cur_mon = 0;
     if (cnt)
-        (void)StringCchCopyW(g_cur_devpath, _countof(g_cur_devpath), g_ui[g_cur_mon].device_path);
+        (void)StringCchCopy(g_cur_devpath, _countof(g_cur_devpath), g_ui[g_cur_mon].device_path);
     LeaveCriticalSection(&g_lock);
 
     for (DWORD i = 0; i < cnt; i++)
@@ -494,24 +504,25 @@ static LRESULT CALLBACK slider_proc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp)
 {
     switch (msg) {
     case WM_CREATE:
-        g_combo = CreateWindow(L"COMBOBOX", NULL, WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST, 10, 10, 280, 200, wnd, (HMENU)1, NULL, NULL);
+        g_combo = CreateWindow(L"COMBOBOX", NULL, WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST, 10, 10, 280, 200, wnd, (HMENU)IDC_MONITOR, NULL,
+                               NULL);
         g_label = CreateWindow(L"STATIC", L"", WS_CHILD | WS_VISIBLE | SS_CENTER, 10, 50, 280, 20, wnd, NULL, NULL, NULL);
         g_slider = CreateWindow(TRACKBAR_CLASS, NULL, WS_CHILD | WS_VISIBLE | TBS_HORZ, 10, 80, 280, 30, wnd, NULL, NULL, NULL);
-        SendMessage(g_slider, TBM_SETRANGE, TRUE, MAKELONG(0, 100));
+        SendMessage(g_slider, TBM_SETRANGE, TRUE, MAKELONG(0, PCT_MAX));
         SendMessage(g_slider, TBM_SETPOS, TRUE, g_cur_pct);
         SetWindowSubclass(g_slider, slider_sub, 1, 0);
-        CreateWindow(L"BUTTON", L"Exit", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 210, 115, 80, 25, wnd, (HMENU)2, NULL, NULL);
+        CreateWindow(L"BUTTON", L"Exit", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 210, 115, 80, 25, wnd, (HMENU)IDC_EXIT, NULL, NULL);
         break;
 
     case WM_COMMAND:
-        if (LOWORD(wp) == 1 && HIWORD(wp) == CBN_SELCHANGE) {
+        if (LOWORD(wp) == IDC_MONITOR && HIWORD(wp) == CBN_SELCHANGE) {
             g_cur_mon = (DWORD)SendMessage(g_combo, CB_GETCURSEL, 0, 0);
             EnterCriticalSection(&g_lock);
             if (g_cur_mon < g_ui_cnt)
-                (void)StringCchCopyW(g_cur_devpath, _countof(g_cur_devpath), g_ui[g_cur_mon].device_path);
+                (void)StringCchCopy(g_cur_devpath, _countof(g_cur_devpath), g_ui[g_cur_mon].device_path);
             LeaveCriticalSection(&g_lock);
             request_get(g_cur_mon);
-        } else if (LOWORD(wp) == 2) {
+        } else if (LOWORD(wp) == IDC_EXIT) {
             PostQuitMessage(0);
         }
         break;
@@ -535,14 +546,14 @@ static LRESULT CALLBACK slider_proc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp)
 
     case WM_ACTIVATE:
         if (LOWORD(wp) == WA_INACTIVE && IsWindowVisible(wnd))
-            SetTimer(wnd, TIMER_HIDE_DELAY, 100, NULL);
+            SetTimer(wnd, TIMER_HIDE, 100, NULL);
         else
-            KillTimer(wnd, TIMER_HIDE_DELAY);
+            KillTimer(wnd, TIMER_HIDE);
         break;
 
     case WM_TIMER:
-        if (wp == TIMER_HIDE_DELAY) {
-            KillTimer(wnd, TIMER_HIDE_DELAY);
+        if (wp == TIMER_HIDE) {
+            KillTimer(wnd, TIMER_HIDE);
             if (IsWindow(g_combo) && SendMessage(g_combo, CB_GETDROPPEDSTATE, 0, 0))
                 return 0;
             if (GetForegroundWindow() != wnd)
@@ -563,6 +574,7 @@ static LRESULT CALLBACK slider_proc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp)
 
 static void show_window(void)
 {
+
     g_track = FALSE;
     g_drag = FALSE;
 
@@ -625,22 +637,25 @@ static void schedule_rescan(const BOOL reset_budget)
 
 static LRESULT CALLBACK main_proc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp)
 {
+    static ULONGLONG last_toggle = 0;
+
     if (g_taskbar_msg && msg == g_taskbar_msg) {
+
         Shell_NotifyIcon(NIM_ADD, &g_nid);
         return 0;
     }
 
     switch (msg) {
-    case WM_USER + 1:
+    case WM_TRAYICON:
         if (lp == WM_LBUTTONUP || lp == WM_RBUTTONUP) {
             const ULONGLONG now = GetTickCount64();
-            if (now - g_last_toggle < GetDoubleClickTime())
+            if (now - last_toggle < GetDoubleClickTime())
                 return 0;
 
-            g_last_toggle = now;
+            last_toggle = now;
 
             if (IsWindow(g_win))
-                KillTimer(g_win, TIMER_HIDE_DELAY);
+                KillTimer(g_win, TIMER_HIDE);
             if (IsWindow(g_win) && IsWindowVisible(g_win))
                 hide_window();
             else
@@ -692,30 +707,25 @@ static LRESULT CALLBACK main_proc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp)
             if (!matched_by_path && g_cur_mon < g_ui_cnt)
                 new_idx = g_cur_mon;
 
-            (void)StringCchCopyW(g_cur_devpath, _countof(g_cur_devpath), g_ui[new_idx].device_path);
+            (void)StringCchCopy(g_cur_devpath, _countof(g_cur_devpath), g_ui[new_idx].device_path);
             LeaveCriticalSection(&g_lock);
             g_cur_mon = new_idx;
-            g_cur_valid = FALSE;
-
-            if (IsWindow(g_win) && IsWindowVisible(g_win)) {
-                rebuild_combo();
-                sync_slider_label();
-            }
-
-            request_get(g_cur_mon);
         } else {
             g_cur_mon = 0;
             g_cur_devpath[0] = 0;
-            g_cur_valid = FALSE;
+        }
 
-            if (IsWindow(g_win) && IsWindowVisible(g_win)) {
-                rebuild_combo();
-                sync_slider_label();
-            }
-            if (g_retry_budget > 0) {
-                g_retry_budget--;
-                schedule_rescan(FALSE);
-            }
+        g_cur_valid = FALSE;
+        if (IsWindow(g_win) && IsWindowVisible(g_win)) {
+            rebuild_combo();
+            sync_slider_label();
+        }
+
+        if (cnt)
+            request_get(g_cur_mon);
+        else if (g_retry_budget > 0) {
+            g_retry_budget--;
+            schedule_rescan(FALSE);
         }
         return 0;
     }
@@ -733,7 +743,7 @@ static LRESULT CALLBACK main_proc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp)
         if (wp == DBT_DEVICEARRIVAL || wp == DBT_DEVICEREMOVECOMPLETE) {
             DEV_BROADCAST_HDR *h = (DEV_BROADCAST_HDR *)lp;
             if (h && h->dbch_devicetype == DBT_DEVTYP_DEVICEINTERFACE &&
-                IsEqualGUID(&((DEV_BROADCAST_DEVICEINTERFACE_W *)h)->dbcc_classguid, &GUID_DEVINTERFACE_MONITOR)) {
+                IsEqualGUID(&((DEV_BROADCAST_DEVICEINTERFACE *)h)->dbcc_classguid, &GUID_DEVINTERFACE_MONITOR)) {
                 schedule_rescan(TRUE);
                 return TRUE;
             }
@@ -764,7 +774,8 @@ int WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmd, int show)
     (void)cmd;
     (void)show;
 
-    HANDLE singleton = CreateMutexW(NULL, TRUE, L"Local\\brightness");
+    BOOL owned_icon = FALSE;
+    HANDLE singleton = CreateMutex(NULL, TRUE, L"Local\\brightness");
     if (GetLastError() == ERROR_ALREADY_EXISTS) {
         if (singleton)
             CloseHandle(singleton);
@@ -790,7 +801,7 @@ int WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmd, int show)
 
     g_worker_thread = CreateThread(NULL, 0, worker, NULL, 0, NULL);
     if (!g_worker_thread || WaitForSingleObject(g_worker_ready, 2000) != WAIT_OBJECT_0) {
-        MessageBoxW(NULL, L"DDC worker failed to start.", L"Error", MB_ICONERROR);
+        MessageBox(NULL, L"DDC worker failed to start.", L"Error", MB_ICONERROR);
         return 1;
     }
 
@@ -801,11 +812,11 @@ int WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmd, int show)
         return 1;
     }
 
-    DEV_BROADCAST_DEVICEINTERFACE_W f = {0};
+    DEV_BROADCAST_DEVICEINTERFACE f = {0};
     f.dbcc_size = sizeof(f);
     f.dbcc_devicetype = DBT_DEVTYP_DEVICEINTERFACE;
     f.dbcc_classguid = GUID_DEVINTERFACE_MONITOR;
-    g_devnotify = RegisterDeviceNotificationW(g_main, &f, DEVICE_NOTIFY_WINDOW_HANDLE);
+    g_devnotify = RegisterDeviceNotification(g_main, &f, DEVICE_NOTIFY_WINDOW_HANDLE);
     g_taskbar_msg = RegisterWindowMessage(L"TaskbarCreated");
 
     ZeroMemory(&g_nid, sizeof(g_nid));
@@ -813,14 +824,14 @@ int WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmd, int show)
     g_nid.hWnd = g_main;
     g_nid.uID = 1;
     g_nid.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP;
-    g_nid.uCallbackMessage = WM_USER + 1;
+    g_nid.uCallbackMessage = WM_TRAYICON;
     g_nid.hIcon = (HICON)LoadImage(GetModuleHandle(NULL), MAKEINTRESOURCE(IDI_ICON), IMAGE_ICON, GetSystemMetrics(SM_CXSMICON),
                                    GetSystemMetrics(SM_CYSMICON), LR_DEFAULTCOLOR);
     if (g_nid.hIcon)
-        g_nid_owned_icon = TRUE;
+        owned_icon = TRUE;
     else {
         g_nid.hIcon = LoadIcon(NULL, IDI_APPLICATION);
-        g_nid_owned_icon = FALSE;
+        owned_icon = FALSE;
     }
 
     (void)StringCchCopy(g_nid.szTip, ARRAYSIZE(g_nid.szTip), L"brightness");
@@ -835,9 +846,10 @@ int WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmd, int show)
         DispatchMessage(&m);
     }
 
+    BOOL worker_exited = TRUE;
     if (g_worker_thread) {
         PostThreadMessage(g_worker_tid, WM_QUIT, 0, 0);
-        WaitForSingleObject(g_worker_thread, 5000);
+        worker_exited = WaitForSingleObject(g_worker_thread, 5000) == WAIT_OBJECT_0;
         CloseHandle(g_worker_thread);
     }
 
@@ -853,10 +865,11 @@ int WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmd, int show)
         DestroyWindow(g_main);
 
     Shell_NotifyIcon(NIM_DELETE, &g_nid);
-    if (g_nid_owned_icon && g_nid.hIcon)
+    if (owned_icon && g_nid.hIcon)
         DestroyIcon(g_nid.hIcon);
 
-    DeleteCriticalSection(&g_lock);
+    if (worker_exited)
+        DeleteCriticalSection(&g_lock);
     CloseHandle(g_worker_ready);
     return 0;
 }
