@@ -51,6 +51,11 @@ typedef struct {
 } MONITOR;
 
 typedef struct {
+    WCHAR label[MON_LABEL_CCH];
+    WCHAR device_path[MON_PATH_CCH];
+} MON_INFO;
+
+typedef struct {
     WCHAR path[MON_PATH_CCH];
     WCHAR name[MON_NAME_CCH];
 } TARGET_NAME;
@@ -63,12 +68,15 @@ static UINT g_taskbar_msg = 0;
 static ULONGLONG g_last_toggle = 0;
 static MONITOR g_mons[MAX_MON];
 static DWORD g_mon_cnt = 0;
+static MON_INFO g_ui[MAX_MON];
+static DWORD g_ui_cnt = 0;
 static DWORD g_cur_mon = 0;
 static WCHAR g_cur_devpath[MON_PATH_CCH] = {0};
 static DWORD g_cur_pct = 50;
 static BOOL g_cur_valid = FALSE;
 static DWORD g_get_seq = 0;
 static BOOL g_drag = FALSE;
+static BOOL g_track = FALSE;
 static DWORD g_retry_budget = 0;
 static TARGET_NAME g_targets[MAX_TARGETS];
 static DWORD g_target_cnt = 0;
@@ -85,7 +93,7 @@ static void collect_targets(void)
         return;
 
     DISPLAYCONFIG_PATH_INFO *paths = malloc(pc * sizeof(*paths));
-    DISPLAYCONFIG_MODE_INFO *modes = malloc(mc * sizeof(*modes));
+    DISPLAYCONFIG_MODE_INFO *modes = malloc((mc + 1) * sizeof(*modes));
 
     if (!paths || !modes) {
         free(paths);
@@ -141,7 +149,7 @@ static BOOL resolve_monitor_name(HMONITOR hm, WCHAR *out, size_t cch)
     WCHAR path[MON_PATH_CCH];
 
     if (get_monitor_device_path(hm, path, _countof(path))) {
-        for (int i = 0; i < g_target_cnt; i++) {
+        for (DWORD i = 0; i < g_target_cnt; i++) {
             if (_wcsicmp(g_targets[i].path, path) == 0) {
                 (void)StringCchCopyW(out, cch, g_targets[i].name);
                 return TRUE;
@@ -222,23 +230,34 @@ static void label_disambiguate(void)
     }
 }
 
-static void mon_exit_locked(void)
+static void mon_exit(void)
 {
     for (DWORD i = 0; i < g_mon_cnt; i++) {
         if (g_mons[i].handle.hPhysicalMonitor)
             DestroyPhysicalMonitor(g_mons[i].handle.hPhysicalMonitor);
-
         ZeroMemory(&g_mons[i], sizeof(g_mons[i]));
     }
     g_mon_cnt = 0;
 }
 
-static void mon_init_locked(void)
+static void publish_snapshot(void)
+{
+    EnterCriticalSection(&g_lock);
+    for (DWORD i = 0; i < g_mon_cnt; i++) {
+        (void)StringCchCopyW(g_ui[i].label, _countof(g_ui[i].label), g_mons[i].label);
+        (void)StringCchCopyW(g_ui[i].device_path, _countof(g_ui[i].device_path), g_mons[i].device_path);
+    }
+    g_ui_cnt = g_mon_cnt;
+    LeaveCriticalSection(&g_lock);
+}
+
+static void mon_init(void)
 {
     g_mon_cnt = 0;
     collect_targets();
     EnumDisplayMonitors(NULL, NULL, enum_proc, 0);
     label_disambiguate();
+    publish_snapshot();
 }
 
 static DWORD worker(LPVOID p)
@@ -256,8 +275,6 @@ static DWORD worker(LPVOID p)
                 continue;
 
             BOOL ok = FALSE;
-            EnterCriticalSection(&g_lock);
-
             if (r->idx < g_mon_cnt) {
                 const DWORD max = g_mons[r->idx].vcp_max ? g_mons[r->idx].vcp_max : 100;
                 const DWORD pct = r->pct > 100 ? 100 : r->pct;
@@ -271,7 +288,6 @@ static DWORD worker(LPVOID p)
                 }
             }
 
-            LeaveCriticalSection(&g_lock);
             if (!ok)
                 PostMessage(g_main, WM_APP_SET_FAILED, r->idx, 0);
             free(r);
@@ -283,8 +299,6 @@ static DWORD worker(LPVOID p)
 
             res->idx = idx;
             res->seq = seq;
-            EnterCriticalSection(&g_lock);
-
             if (idx < g_mon_cnt) {
                 for (int attempt = 0; attempt < DDC_READ_RETRIES; ++attempt) {
                     DWORD cur, max;
@@ -299,15 +313,11 @@ static DWORD worker(LPVOID p)
                 }
             }
 
-            LeaveCriticalSection(&g_lock);
             PostMessage(g_main, WM_APP_GET_DONE, 0, (LPARAM)res);
         } else if (msg.message == WM_APP_REFRESH) {
-            EnterCriticalSection(&g_lock);
-            mon_exit_locked();
-            mon_init_locked();
-            const DWORD cnt = g_mon_cnt;
-            LeaveCriticalSection(&g_lock);
-            PostMessage(g_main, WM_APP_REFRESH_DONE, cnt, 0);
+            mon_exit();
+            mon_init();
+            PostMessage(g_main, WM_APP_REFRESH_DONE, g_mon_cnt, 0);
         }
     }
 
@@ -315,9 +325,7 @@ static DWORD worker(LPVOID p)
         if (msg.message == WM_APP_SET_VCP && msg.lParam)
             free((void *)msg.lParam);
 
-    EnterCriticalSection(&g_lock);
-    mon_exit_locked();
-    LeaveCriticalSection(&g_lock);
+    mon_exit();
     return 0;
 }
 
@@ -327,7 +335,7 @@ static void request_get(const DWORD idx)
         return;
 
     EnterCriticalSection(&g_lock);
-    const BOOL valid = idx < g_mon_cnt;
+    const BOOL valid = idx < g_ui_cnt;
     LeaveCriticalSection(&g_lock);
     g_cur_valid = FALSE;
     if (!valid)
@@ -369,7 +377,7 @@ static void sync_slider_label(void)
         return;
 
     EnterCriticalSection(&g_lock);
-    const BOOL has = g_mon_cnt > 0;
+    const BOOL has = g_ui_cnt > 0;
     LeaveCriticalSection(&g_lock);
 
     if (has) {
@@ -390,15 +398,17 @@ static void rebuild_combo(void)
 
     SendMessage(g_combo, CB_RESETCONTENT, 0, 0);
     EnterCriticalSection(&g_lock);
-    const DWORD cnt = g_mon_cnt;
+    const DWORD cnt = g_ui_cnt;
     WCHAR labels[MAX_MON][MON_LABEL_CCH];
 
     for (DWORD i = 0; i < cnt; i++)
-        (void)StringCchCopyW(labels[i], MON_LABEL_CCH, g_mons[i].label);
+        (void)StringCchCopyW(labels[i], MON_LABEL_CCH, g_ui[i].label);
 
-    LeaveCriticalSection(&g_lock);
     if (g_cur_mon >= cnt)
         g_cur_mon = 0;
+    if (cnt)
+        (void)StringCchCopyW(g_cur_devpath, _countof(g_cur_devpath), g_ui[g_cur_mon].device_path);
+    LeaveCriticalSection(&g_lock);
 
     for (DWORD i = 0; i < cnt; i++)
         SendMessage(g_combo, CB_ADDSTRING, 0, (LPARAM)labels[i]);
@@ -436,7 +446,7 @@ static LRESULT CALLBACK slider_sub(HWND wnd, UINT msg, WPARAM wp, LPARAM lp, UIN
         RECT th;
         SendMessage(wnd, TBM_GETTHUMBRECT, 0, (LPARAM)&th);
         if (PtInRect(&th, pt)) {
-            g_drag = FALSE;
+            g_drag = TRUE;
             break;
         }
 
@@ -444,12 +454,13 @@ static LRESULT CALLBACK slider_sub(HWND wnd, UINT msg, WPARAM wp, LPARAM lp, UIN
         SendMessage(wnd, TBM_SETPOS, TRUE, pos);
         SendMessage(GetParent(wnd), WM_HSCROLL, MAKEWPARAM(TB_THUMBTRACK, pos), (LPARAM)wnd);
         SetCapture(wnd);
+        g_track = TRUE;
         g_drag = TRUE;
         return 0;
     }
 
     case WM_MOUSEMOVE:
-        if (g_drag) {
+        if (g_track) {
             const int pos = slider_pos_from_x(wnd, GET_X_LPARAM(lp));
             SendMessage(wnd, TBM_SETPOS, TRUE, pos);
             SendMessage(GetParent(wnd), WM_HSCROLL, MAKEWPARAM(TB_THUMBTRACK, pos), (LPARAM)wnd);
@@ -458,7 +469,8 @@ static LRESULT CALLBACK slider_sub(HWND wnd, UINT msg, WPARAM wp, LPARAM lp, UIN
         break;
 
     case WM_LBUTTONUP:
-        if (g_drag) {
+        if (g_track) {
+            g_track = FALSE;
             g_drag = FALSE;
             ReleaseCapture();
             const int pos = (int)SendMessage(wnd, TBM_GETPOS, 0, 0);
@@ -468,6 +480,7 @@ static LRESULT CALLBACK slider_sub(HWND wnd, UINT msg, WPARAM wp, LPARAM lp, UIN
         break;
 
     case WM_CAPTURECHANGED:
+        g_track = FALSE;
         g_drag = FALSE;
         break;
 
@@ -494,9 +507,8 @@ static LRESULT CALLBACK slider_proc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp)
         if (LOWORD(wp) == 1 && HIWORD(wp) == CBN_SELCHANGE) {
             g_cur_mon = (DWORD)SendMessage(g_combo, CB_GETCURSEL, 0, 0);
             EnterCriticalSection(&g_lock);
-            if (g_cur_mon < g_mon_cnt)
-                (void)StringCchCopyW(g_cur_devpath, _countof(g_cur_devpath), g_mons[g_cur_mon].device_path);
-
+            if (g_cur_mon < g_ui_cnt)
+                (void)StringCchCopyW(g_cur_devpath, _countof(g_cur_devpath), g_ui[g_cur_mon].device_path);
             LeaveCriticalSection(&g_lock);
             request_get(g_cur_mon);
         } else if (LOWORD(wp) == 2) {
@@ -507,6 +519,8 @@ static LRESULT CALLBACK slider_proc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp)
     case WM_HSCROLL:
         if ((HWND)lp == g_slider) {
             const DWORD code = LOWORD(wp);
+            if (code == TB_ENDTRACK || code == TB_THUMBPOSITION)
+                g_drag = FALSE;
             const DWORD pos = (DWORD)SendMessage(g_slider, TBM_GETPOS, 0, 0);
             set_label(pos);
 
@@ -549,6 +563,9 @@ static LRESULT CALLBACK slider_proc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp)
 
 static void show_window(void)
 {
+    g_track = FALSE;
+    g_drag = FALSE;
+
     POINT pt;
     GetCursorPos(&pt);
     HMONITOR hm = MonitorFromPoint(pt, MONITOR_DEFAULTTONEAREST);
@@ -663,8 +680,8 @@ static LRESULT CALLBACK main_proc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp)
             EnterCriticalSection(&g_lock);
 
             if (g_cur_devpath[0]) {
-                for (DWORD i = 0; i < g_mon_cnt; i++) {
-                    if (_wcsicmp(g_mons[i].device_path, g_cur_devpath) == 0) {
+                for (DWORD i = 0; i < g_ui_cnt; i++) {
+                    if (_wcsicmp(g_ui[i].device_path, g_cur_devpath) == 0) {
                         new_idx = i;
                         matched_by_path = TRUE;
                         break;
@@ -672,10 +689,10 @@ static LRESULT CALLBACK main_proc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp)
                 }
             }
 
-            if (!matched_by_path && g_cur_mon < g_mon_cnt)
+            if (!matched_by_path && g_cur_mon < g_ui_cnt)
                 new_idx = g_cur_mon;
 
-            (void)StringCchCopyW(g_cur_devpath, _countof(g_cur_devpath), g_mons[new_idx].device_path);
+            (void)StringCchCopyW(g_cur_devpath, _countof(g_cur_devpath), g_ui[new_idx].device_path);
             LeaveCriticalSection(&g_lock);
             g_cur_mon = new_idx;
             g_cur_valid = FALSE;
@@ -747,6 +764,13 @@ int WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmd, int show)
     (void)cmd;
     (void)show;
 
+    HANDLE singleton = CreateMutexW(NULL, TRUE, L"Local\\brightness");
+    if (GetLastError() == ERROR_ALREADY_EXISTS) {
+        if (singleton)
+            CloseHandle(singleton);
+        return 0;
+    }
+
     InitializeCriticalSection(&g_lock);
     g_worker_ready = CreateEvent(NULL, TRUE, FALSE, NULL);
 
@@ -813,7 +837,7 @@ int WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmd, int show)
 
     if (g_worker_thread) {
         PostThreadMessage(g_worker_tid, WM_QUIT, 0, 0);
-        WaitForSingleObject(g_worker_thread, INFINITE);
+        WaitForSingleObject(g_worker_thread, 5000);
         CloseHandle(g_worker_thread);
     }
 
